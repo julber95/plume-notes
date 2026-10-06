@@ -151,6 +151,14 @@ export function getStrokes(pageId: string): Promise<Stroke[]> {
   })
 }
 
+/**
+ * Numéro de révision d'une page : toujours croissant et jamais réutilisé, car
+ * le rendu PDF mis en cache est retrouvé par ce numéro.
+ */
+function nextRev(rev: number): number {
+  return Math.max(rev + 1, Date.now())
+}
+
 const CONTENT: StoreName[] = ['nodes', 'pages', 'strokes', 'pdfcache']
 
 function deleteStrokesOfPage(t: IDBTransaction, pageId: string): Promise<void> {
@@ -182,7 +190,7 @@ export function applyStrokeChange(notebookId: string, pageId: string, add: Strok
       const pages = t.objectStore('pages')
       const page = (await req(pages.get(pageId))) as Page | undefined
       if (page) {
-        page.rev++
+        page.rev = nextRev(page.rev)
         pages.put(page)
       }
       const nodes = t.objectStore('nodes')
@@ -212,7 +220,11 @@ export function applyPageStructure(notebookId: string, change: PageStructureChan
     'readwrite',
     async (t) => {
       const pages = t.objectStore('pages')
-      for (const p of change.putPages ?? []) pages.put(p)
+      for (const p of change.putPages ?? []) {
+        const existing = (await req(pages.get(p.id))) as Page | undefined
+        p.rev = nextRev(Math.max(p.rev, existing?.rev ?? 0))
+        pages.put(p)
+      }
       for (const id of change.deletePageIds ?? []) {
         pages.delete(id)
         await deleteStrokesOfPage(t, id)

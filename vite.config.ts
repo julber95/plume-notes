@@ -5,6 +5,7 @@ export default defineConfig({
   // Chemins relatifs : l'application fonctionne quel que soit le sous-dossier
   // où elle est hébergée (par exemple https://moncompte.github.io/plume/).
   base: './',
+  define: { __APP_VERSION__: JSON.stringify('1.0.0') },
   build: { target: 'es2022' },
   worker: { format: 'es' },
   plugins: [
