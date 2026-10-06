@@ -49,26 +49,67 @@ export function simplify(flat: ArrayLike<number>, tol: number): number[] {
 }
 
 /**
- * Contour (polygone plat) d'un trait de stylo sensible à la pression.
- * `complete` vaut false pendant le tracé.
+ * La bibliothèque de tracé raisonne en pixels d'écran (elle ignore par exemple
+ * les 3 dernières unités d'un trait). Nos coordonnées sont en points de page,
+ * bien plus grands : on les agrandit donc avant le calcul, sinon la fin de
+ * chaque trait devient un segment droit d'un millimètre.
+ */
+const UNIT = 12
+
+/**
+ * Polygone de contrôle (plat) du contour d'un trait de stylo sensible à la
+ * pression. À dessiner arrondi : voir `smoothClosed`. `complete` vaut false
+ * pendant le tracé.
  */
 export function penOutline(pts: ArrayLike<number>, width: number, complete = true): number[] {
   const input: number[][] = []
-  for (let i = 0; i < pts.length; i += 3) input.push([pts[i], pts[i + 1], pts[i + 2]])
+  for (let i = 0; i < pts.length; i += 3) input.push([pts[i] * UNIT, pts[i + 1] * UNIT, pts[i + 2]])
   const outline = getStroke(input, {
-    size: width,
+    size: width * UNIT,
     thinning: 0.5,
     smoothing: 0.5,
-    streamline: 0.35,
+    streamline: 0.4,
     simulatePressure: false,
     last: complete,
   })
   const flat: number[] = new Array(outline.length * 2)
   for (let i = 0; i < outline.length; i++) {
-    flat[2 * i] = outline[i][0]
-    flat[2 * i + 1] = outline[i][1]
+    flat[2 * i] = outline[i][0] / UNIT
+    flat[2 * i + 1] = outline[i][1] / UNIT
   }
-  return complete ? simplify(flat, 0.02) : flat
+  return complete ? simplify(flat, 0.01) : flat
+}
+
+/**
+ * Arrondit un polygone fermé : chaque sommet devient le point de contrôle d'une
+ * courbe passant par les milieux des côtés. Retourne la courbe sous forme de
+ * polyligne assez fine pour que l'écart reste sous `tol`.
+ */
+export function smoothClosed(flat: ArrayLike<number>, tol = 0.02): number[] {
+  const n = flat.length / 2
+  if (n < 3) return Array.from(flat)
+  const out: number[] = []
+  let ax = (flat[2 * n - 2] + flat[0]) / 2
+  let ay = (flat[2 * n - 1] + flat[1]) / 2
+  out.push(ax, ay)
+  for (let i = 0; i < n; i++) {
+    const cx = flat[2 * i]
+    const cy = flat[2 * i + 1]
+    const j = (i + 1) % n
+    const bx = (cx + flat[2 * j]) / 2
+    const by = (cy + flat[2 * j + 1]) / 2
+    // Écart maximal entre la courbe et sa corde ; divisé par 4 à chaque doublement des segments.
+    const dev = Math.hypot(ax - 2 * cx + bx, ay - 2 * cy + by) / 4
+    const steps = Math.min(8, Math.max(1, Math.ceil(Math.sqrt(dev / tol))))
+    for (let k = 1; k <= steps; k++) {
+      const t = k / steps
+      const u = 1 - t
+      out.push(u * u * ax + 2 * u * t * cx + t * t * bx, u * u * ay + 2 * u * t * cy + t * t * by)
+    }
+    ax = bx
+    ay = by
+  }
+  return out
 }
 
 /** Ligne centrale [x, y, …] d'un trait à largeur constante (surligneur, trait droit). */

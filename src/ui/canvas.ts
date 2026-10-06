@@ -77,15 +77,34 @@ function toR(s: Stroke): RStroke {
   return { ...s, bbox: strokeBBox(s) }
 }
 
-function buildPath(s: RStroke): Path2D {
+/** Contour de stylo arrondi : courbes passant par les milieux des côtés du polygone. */
+function roundedOutline(p: Path2D, flat: number[]): void {
+  const n = flat.length / 2
+  if (n < 3) return
+  p.moveTo((flat[2 * n - 2] + flat[0]) / 2, (flat[2 * n - 1] + flat[1]) / 2)
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n
+    p.quadraticCurveTo(flat[2 * i], flat[2 * i + 1], (flat[2 * i] + flat[2 * j]) / 2, (flat[2 * i + 1] + flat[2 * j + 1]) / 2)
+  }
+  p.closePath()
+}
+
+function strokePath(tool: Stroke['tool'], pts: ArrayLike<number>, width: number, complete: boolean): Path2D {
   const p = new Path2D()
-  const flat = s.tool === 'pen' ? penOutline(s.pts, s.width) : centerline(s.pts)
+  if (tool === 'pen') {
+    roundedOutline(p, penOutline(pts, width, complete))
+    return p
+  }
+  const flat = centerline(pts)
   if (flat.length < 2) return p
   p.moveTo(flat[0], flat[1])
   for (let i = 2; i < flat.length; i += 2) p.lineTo(flat[i], flat[i + 1])
-  if (s.tool === 'pen') p.closePath()
-  else if (flat.length === 2) p.lineTo(flat[0] + 0.01, flat[1])
+  if (flat.length === 2) p.lineTo(flat[0] + 0.01, flat[1])
   return p
+}
+
+function buildPath(s: RStroke): Path2D {
+  return strokePath(s.tool, s.pts, s.width, true)
 }
 
 export class InkCanvas {
@@ -591,14 +610,8 @@ export class InkCanvas {
     if (a?.type === 'draw') {
       const tool = a.kind === 'highlighter' ? this.tool.highlighter : this.tool.pen
       const pts = a.kind === 'line' ? a.pts.slice(0, 3).concat(a.tail) : a.pts.concat(a.tail, a.predicted)
-      const live = { tool: a.kind, color: tool.color, width: tool.width, pts: Float32Array.from(pts) } as RStroke
-      const path = new Path2D()
-      const flat = a.kind === 'pen' ? penOutline(live.pts, live.width, false) : centerline(live.pts)
-      if (flat.length >= 2) {
-        path.moveTo(flat[0], flat[1])
-        for (let i = 2; i < flat.length; i += 2) path.lineTo(flat[i], flat[i + 1])
-        if (flat.length === 2) path.lineTo(flat[0] + 0.01, flat[1])
-      }
+      const live = { tool: a.kind, color: tool.color, width: tool.width }
+      const path = strokePath(a.kind, pts, tool.width, false)
       this.pageTransform(ctx, a.pv)
       ctx.save()
       ctx.beginPath()
@@ -709,8 +722,9 @@ export class InkCanvas {
       return
     }
     const mouse = e.pointerType === 'mouse'
-    // Points plus serrés quand on écrit en zoomant, pour garder le détail.
-    const minDist = Math.min(0.5, 1.5 / this.zoom)
+    // On garde un point tous les 2/3 de pixel d'écran environ : assez dense pour
+    // des courbes rondes, même sur de petites lettres.
+    const minDist = Math.min(0.25, 0.65 / this.zoom)
     for (const ev of events) {
       const w = this.world(ev)
       const x = w.x - a.pv.x

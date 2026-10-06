@@ -5,7 +5,7 @@
 import { PDFDocument, PDFName, PDFString, type PDFRef } from 'pdf-lib'
 import { strToU8, zlibSync } from 'fflate'
 import { backgroundSpec } from '../backgrounds'
-import { HIGHLIGHTER_ALPHA, centerline, hexToRgb, penOutline } from '../geometry'
+import { HIGHLIGHTER_ALPHA, centerline, hexToRgb, penOutline, simplify, smoothClosed } from '../geometry'
 import { pageSize, type Background, type Orientation, type Page, type Stroke } from '../model'
 import { FORMAT_VERSION, encodePage } from './codec'
 
@@ -69,7 +69,8 @@ function pageContent(page: PdfPageInput): string {
   let fill = ''
   for (const s of page.strokes) {
     if (s.tool === 'pen') {
-      const outline = penOutline(s.pts, s.width)
+      // Contour arrondi comme à l'écran, puis allégé : écart maximal de 0,05 pt (0,02 mm).
+      const outline = simplify(smoothClosed(penOutline(s.pts, s.width)), 0.05)
       if (outline.length < 4) continue
       const color = rgb(s.color)
       if (color !== fill) out += `${(fill = color)} rg\n`
