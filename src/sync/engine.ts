@@ -1,0 +1,561 @@
+// Synchronisation avec OneDrive.
+//
+// Principe : le stockage local fait foi pendant l'écriture ; chaque nœud porte
+// son propre état (« à créer », « à renommer », « à envoyer », « à supprimer »).
+// Un cycle de synchronisation lit d'abord les changements OneDrive, puis envoie
+// tout ce qui est en attente. Rien n'est jamais écrasé en silence : si un
+// bloc-notes a changé des deux côtés, les deux versions sont conservées.
+
+import { ONEDRIVE_FOLDER } from '../config'
+import { allNodes, getNode, kvGet, kvSet, mutateNodes, purgeNodes, replaceNotebookContent, updateNode } from '../db'
+import { ROOT, conflictStamp, hasPendingSync, isDirtyNotebook, siblingNames, uid, uniqueName, type LibNode, type Page } from '../model'
+import { dataToContent, type NotebookData } from '../pdf/codec'
+import type { BuiltPdf } from '../pdf/fromDb'
+import { AuthRequiredError, GraphError, type DriveItem, type GraphClient } from './graph'
+
+export type SyncState = 'disabled' | 'signedOut' | 'offline' | 'syncing' | 'pending' | 'ok' | 'error'
+
+export interface SyncStatus {
+  state: SyncState
+  message?: string
+  lastSync?: number
+}
+
+export interface Notice {
+  id: string
+  text: string
+  at: number
+}
+
+export type SyncEvent = { type: 'status' } | { type: 'library' } | { type: 'replaced'; notebookId: string } | { type: 'notices' }
+
+export interface SyncHost {
+  /** 'disabled' : OneDrive non configuré ; 'signedOut' : connexion requise. */
+  authState(): 'disabled' | 'signedOut' | 'ready'
+  graph(): GraphClient
+  isOnline(): boolean
+  buildPdf(notebookId: string): Promise<BuiltPdf>
+  extract(bytes: Uint8Array): Promise<NotebookData | null>
+  /** Bloc-notes actuellement ouvert dans l'éditeur, s'il y en a un. */
+  openNotebookId(): string | null
+}
+
+async function digest(algo: string, bytes: Uint8Array): Promise<string> {
+  const buf = await crypto.subtle.digest(algo, bytes as BufferSource)
+  return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** Le contenu OneDrive est-il celui que nous connaissons déjà ? */
+function sameContent(n: LibNode, it: DriveItem): boolean {
+  if (it.cTag && n.cTag && it.cTag === n.cTag) return true
+  const h = it.file?.hashes
+  if (h?.sha256Hash && n.sha256) return h.sha256Hash.toLowerCase() === n.sha256
+  if (h?.sha1Hash && n.sha1) return h.sha1Hash.toLowerCase() === n.sha1
+  return false
+}
+
+/** Coupe le lien avec OneDrive : le nœud sera renvoyé comme un nouvel élément. */
+function detach(n: LibNode): void {
+  n.remoteId = n.eTag = n.cTag = n.sha1 = n.sha256 = undefined
+  n.metaDirty = false
+  if (n.kind === 'notebook') {
+    n.uploadedRev = -1
+    n.needsDownload = false
+  }
+}
+
+/**
+ * Conflit : `n` garde le contenu local et devient une copie à part ; un nouveau
+ * nœud reprend la place de la version OneDrive, qui sera téléchargée.
+ */
+function forkConflict(nodes: LibNode[], n: LibNode, remoteName?: string, remoteParentId?: string): LibNode {
+  const now = Date.now()
+  const twin: LibNode = {
+    id: uid(),
+    kind: 'notebook',
+    name: remoteName ?? n.name,
+    parentId: remoteParentId ?? n.parentId,
+    createdAt: now,
+    updatedAt: now,
+    remoteId: n.remoteId,
+    eTag: n.eTag,
+    pageIds: [],
+    bg: n.bg,
+    orient: n.orient,
+    rev: 0,
+    uploadedRev: 0,
+    needsDownload: true,
+  }
+  detach(n)
+  n.name = uniqueName(`${twin.name} (conflit ${conflictStamp(new Date(now))})`, siblingNames(nodes, n.parentId, 'notebook', n.id))
+  n.updatedAt = now
+  nodes.push(twin)
+  return twin
+}
+
+const conflictText = (original: string, copy: string) =>
+  `« ${original} » a été modifié à deux endroits. Vos modifications faites ici sont conservées dans « ${copy} ».`
+
+export class SyncEngine {
+  status: SyncStatus = { state: 'disabled' }
+  private running: Promise<void> | null = null
+  private again = false
+  private listeners = new Set<(e: SyncEvent) => void>()
+
+  constructor(private host: SyncHost) {}
+
+  subscribe(fn: (e: SyncEvent) => void): () => void {
+    this.listeners.add(fn)
+    return () => this.listeners.delete(fn)
+  }
+
+  private emit(e: SyncEvent): void {
+    for (const fn of this.listeners) fn(e)
+  }
+
+  private async setStatus(state: SyncState, message?: string): Promise<void> {
+    this.status = { state, message, lastSync: await kvGet<number>('lastSync') }
+    this.emit({ type: 'status' })
+  }
+
+  /** Recalcule l'état affiché sans rien envoyer (après une modification locale). */
+  async refresh(): Promise<void> {
+    if (this.running) return
+    const auth = this.host.authState()
+    if (auth !== 'ready') return this.setStatus(auth)
+    if (!this.host.isOnline()) return this.setStatus('offline')
+    if (this.status.state === 'error') return
+    const pending = (await allNodes()).some(hasPendingSync)
+    await this.setStatus(pending ? 'pending' : 'ok')
+  }
+
+  /** Lance une synchronisation (ou en programme une autre si l'une est en cours). */
+  sync(): Promise<void> {
+    if (this.running) {
+      this.again = true
+      return this.running
+    }
+    this.running = this.loop().finally(() => {
+      this.running = null
+    })
+    return this.running
+  }
+
+  private async loop(): Promise<void> {
+    let rounds = 0
+    do {
+      this.again = false
+      const auth = this.host.authState()
+      if (auth !== 'ready') return this.setStatus(auth)
+      if (!this.host.isOnline()) return this.setStatus('offline')
+      await this.setStatus('syncing')
+      try {
+        await this.cycle(this.host.graph())
+        await kvSet('lastSync', Date.now())
+      } catch (e) {
+        if (e instanceof AuthRequiredError) return this.setStatus(this.host.authState() === 'ready' ? 'error' : 'signedOut', e.message)
+        if (e instanceof GraphError && e.status === 0) return this.setStatus('offline')
+        console.error('Synchronisation', e)
+        return this.setStatus('error', e instanceof Error ? e.message : String(e))
+      }
+    } while (this.again && ++rounds < 8)
+    const pending = (await allNodes()).some(hasPendingSync)
+    await this.setStatus(pending ? 'pending' : 'ok')
+  }
+
+  // ---------- Avis à l'utilisateur ----------
+
+  async notices(): Promise<Notice[]> {
+    return (await kvGet<Notice[]>('notices')) ?? []
+  }
+
+  private async notify(texts: string[]): Promise<void> {
+    if (!texts.length) return
+    const list = await this.notices()
+    for (const text of texts) list.push({ id: uid(), text, at: Date.now() })
+    await kvSet('notices', list)
+    this.emit({ type: 'notices' })
+  }
+
+  async dismissNotice(id: string): Promise<void> {
+    await kvSet('notices', (await this.notices()).filter((n) => n.id !== id))
+    this.emit({ type: 'notices' })
+  }
+
+  // ---------- Cycle ----------
+
+  private async cycle(g: GraphClient): Promise<void> {
+    let rootId = await kvGet<string>('rootRemoteId')
+    if (!rootId) {
+      rootId = (await g.ensureRoot(ONEDRIVE_FOLDER)).id
+      await kvSet('rootRemoteId', rootId)
+      await kvSet('deltaLink', undefined)
+    }
+    try {
+      await this.pull(g, rootId)
+    } catch (e) {
+      if (!(e instanceof GraphError) || e.status !== 404) throw e
+      // Le dossier Plume a disparu de OneDrive. On ne supprime rien ici : tout
+      // le contenu local sera renvoyé dans un dossier recréé.
+      await this.detachAll()
+      await kvSet('rootRemoteId', undefined)
+      await kvSet('deltaLink', undefined)
+      await this.notify([`Le dossier « ${ONEDRIVE_FOLDER} » avait disparu de OneDrive. Il a été recréé à partir du contenu de cet appareil.`])
+      this.again = true
+      return
+    }
+    await this.pushDeletes(g)
+    await this.pushFolders(g, rootId)
+    await this.pushMeta(g, rootId)
+    await this.pushNotebooks(g, rootId)
+    await this.downloads(g)
+  }
+
+  private async detachAll(): Promise<void> {
+    const gone: string[] = []
+    await mutateNodes(async (s) => {
+      for (const n of await s.all()) {
+        if (n.deleted || (n.kind === 'notebook' && n.needsDownload && !isDirtyNotebook(n))) gone.push(n.id)
+        else {
+          detach(n)
+          s.put(n)
+        }
+      }
+    })
+    await purgeNodes(gone)
+    this.emit({ type: 'library' })
+  }
+
+  /** Applique localement les changements faits sur OneDrive. */
+  private async pull(g: GraphClient, rootId: string): Promise<void> {
+    const ch = await g.changes(rootId, await kvGet<string>('deltaLink'))
+    const remote = new Map<string, DriveItem>()
+    for (const it of ch.items) if (it.id !== rootId) remote.set(it.id, it)
+    const openId = this.host.openNotebookId()
+    const notices: string[] = []
+    const removed = new Set<string>()
+    let changed = false
+
+    await mutateNodes(async (s) => {
+      const nodes = await s.all()
+      const byRemote = new Map<string, LibNode>()
+      for (const n of nodes) if (n.remoteId) byRemote.set(n.remoteId, n)
+      const dirty = new Set<LibNode>()
+      const now = Date.now()
+      const childrenOf = (id: string) => nodes.filter((c) => c.parentId === id && !removed.has(c.id))
+
+      const remoteDelete = (n: LibNode): void => {
+        if (removed.has(n.id) || !n.remoteId) return
+        if (n.deleted) {
+          removed.add(n.id)
+        } else if (n.kind === 'folder') {
+          for (const c of childrenOf(n.id)) remoteDelete(c)
+          if (childrenOf(n.id).length === 0) removed.add(n.id)
+          else {
+            // Il reste du contenu local non envoyé : le dossier sera recréé.
+            detach(n)
+            dirty.add(n)
+          }
+        } else if ((isDirtyNotebook(n) && !n.needsDownload) || n.id === openId) {
+          detach(n)
+          dirty.add(n)
+          notices.push(`« ${n.name} » a été supprimé sur OneDrive alors qu'il contenait des modifications non envoyées. Il a été conservé et sera renvoyé.`)
+        } else {
+          removed.add(n.id)
+        }
+      }
+
+      const done = new Map<string, LibNode | undefined>()
+      const ensure = (it: DriveItem): LibNode | undefined => {
+        if (done.has(it.id)) return done.get(it.id)
+        done.set(it.id, undefined)
+        const n = upsert(it)
+        done.set(it.id, n)
+        return n
+      }
+      const upsert = (it: DriveItem): LibNode | undefined => {
+        const isFolder = !!it.folder
+        if (!it.name || (!isFolder && !(it.file && /\.pdf$/i.test(it.name)))) return undefined
+        const pid = it.parentReference?.id
+        let parentId: string | undefined
+        if (pid === rootId) parentId = ROOT
+        else if (pid) {
+          const pIt = remote.get(pid)
+          const p = pIt && !pIt.deleted ? ensure(pIt) : byRemote.get(pid)
+          if (p && p.kind === 'folder' && !p.deleted && !removed.has(p.id)) parentId = p.id
+        }
+        if (!parentId) return undefined
+        const kind = isFolder ? 'folder' : 'notebook'
+        const name = isFolder ? it.name : it.name.replace(/\.pdf$/i, '')
+        const sameSpot = (c: LibNode) => c.kind === kind && c.parentId === parentId && !c.deleted && c.name.toLowerCase() === name.toLowerCase()
+
+        let n = byRemote.get(it.id)
+        if (n && (removed.has(n.id) || n.deleted || n.kind !== kind)) return n.deleted ? n : undefined
+        if (!n && isFolder) {
+          // Un dossier du même nom créé ici et pas encore envoyé : c'est le même.
+          n = nodes.find((c) => !c.remoteId && sameSpot(c))
+          if (n) {
+            n.remoteId = it.id
+            n.name = name
+            n.metaDirty = false
+            byRemote.set(it.id, n)
+          }
+        }
+        if (!n) {
+          // Un bloc-notes local du même nom, jamais envoyé, cède le nom.
+          for (const c of nodes) {
+            if (!c.remoteId && sameSpot(c)) {
+              c.name = uniqueName(c.name, [...siblingNames(nodes, parentId, kind, c.id), name])
+              dirty.add(c)
+            }
+          }
+          n = { id: uid(), kind, name, parentId, createdAt: now, updatedAt: now, remoteId: it.id }
+          if (!isFolder) Object.assign(n, { pageIds: [], bg: 'blank', orient: 'portrait', rev: 0, uploadedRev: 0, needsDownload: true } satisfies Partial<LibNode>)
+          nodes.push(n)
+          byRemote.set(it.id, n)
+        } else if (!n.metaDirty && (n.name !== name || n.parentId !== parentId)) {
+          n.name = name
+          n.parentId = parentId
+        } else if (n.eTag === it.eTag && (isFolder || sameContent(n, it))) {
+          return n
+        }
+        n.eTag = it.eTag
+        dirty.add(n)
+
+        if (!isFolder && !n.needsDownload && n.cTag !== undefined && !sameContent(n, it)) {
+          if (n.foreign) {
+            n.cTag = it.cTag
+          } else if (isDirtyNotebook(n)) {
+            const original = n.name
+            const twin = forkConflict(nodes, n, name, parentId)
+            twin.eTag = it.eTag
+            byRemote.set(it.id, twin)
+            dirty.add(twin)
+            notices.push(conflictText(original, n.name))
+          } else {
+            n.needsDownload = true
+          }
+        } else if (!isFolder && it.cTag && n.cTag !== undefined) {
+          n.cTag = it.cTag
+        }
+        return n
+      }
+      // D'abord les créations, renommages et déplacements, ensuite les
+      // suppressions : un fichier sorti d'un dossier avant que celui-ci soit
+      // supprimé ne doit pas disparaître avec lui.
+      for (const it of remote.values()) if (!it.deleted) ensure(it)
+
+      for (const it of remote.values()) {
+        const n = it.deleted && byRemote.get(it.id)
+        if (n) remoteDelete(n)
+      }
+      if (ch.full) {
+        for (const n of nodes) {
+          const it = n.remoteId && remote.get(n.remoteId)
+          if (n.remoteId && (!it || it.deleted)) remoteDelete(n)
+        }
+      }
+
+      for (const n of dirty) if (!removed.has(n.id)) s.put(n)
+      for (const id of removed) s.delete(id)
+      changed = dirty.size > 0 || removed.size > 0
+    })
+
+    if (removed.size) await purgeNodes([...removed])
+    await kvSet('deltaLink', ch.link)
+    await this.notify(notices)
+    if (changed) this.emit({ type: 'library' })
+  }
+
+  private async pushDeletes(g: GraphClient): Promise<void> {
+    for (const n of await allNodes()) {
+      if (!n.deleted) continue
+      if (n.remoteId) await g.remove(n.remoteId)
+      await purgeNodes([n.id])
+    }
+  }
+
+  /** Identifiant OneDrive du dossier parent, s'il existe déjà là-bas. */
+  private parentRemote(n: LibNode, byId: Map<string, LibNode>, rootId: string): string | undefined {
+    if (n.parentId === ROOT) return rootId
+    const p = byId.get(n.parentId)
+    return p && !p.deleted ? p.remoteId : undefined
+  }
+
+  private async pushFolders(g: GraphClient, rootId: string): Promise<void> {
+    for (let round = 0; round < 50; round++) {
+      const nodes = await allNodes()
+      const byId = new Map(nodes.map((n) => [n.id, n]))
+      const ready = nodes.filter((n) => n.kind === 'folder' && !n.deleted && !n.remoteId && this.parentRemote(n, byId, rootId))
+      if (!ready.length) return
+      for (const n of ready) {
+        const parent = this.parentRemote(n, byId, rootId)!
+        let item: DriveItem | undefined
+        try {
+          item = await g.createFolder(parent, n.name)
+        } catch (e) {
+          if (!(e instanceof GraphError) || e.status !== 409) throw e
+          const existing = await g.childByName(parent, n.name)
+          if (existing?.folder && !nodes.some((o) => o.remoteId === existing.id)) item = existing
+        }
+        if (!item) {
+          await updateNode(n.id, (m) => void (m.name = uniqueName(m.name, [m.name])))
+          continue
+        }
+        const created = item
+        await updateNode(n.id, (m) => {
+          m.remoteId = created.id
+          m.eTag = created.eTag
+          m.metaDirty = m.name !== n.name || m.parentId !== n.parentId
+        })
+      }
+      this.emit({ type: 'library' })
+    }
+  }
+
+  private async pushMeta(g: GraphClient, rootId: string): Promise<void> {
+    const nodes = await allNodes()
+    const byId = new Map(nodes.map((n) => [n.id, n]))
+    for (const n of nodes) {
+      if (n.deleted || !n.remoteId || !n.metaDirty) continue
+      const parent = this.parentRemote(n, byId, rootId)
+      if (!parent) continue
+      let item: DriveItem
+      try {
+        item = await g.patch(n.remoteId, n.kind === 'folder' ? n.name : `${n.name}.pdf`, parent)
+      } catch (e) {
+        if (!(e instanceof GraphError) || (e.status !== 409 && e.status !== 404)) throw e
+        // 409 : nom déjà pris sur OneDrive ; 404 : l'élément n'existe plus là-bas.
+        await updateNode(n.id, (m) => {
+          if (e.status === 409) m.name = uniqueName(m.name, [m.name])
+          else detach(m)
+        })
+        this.again = true
+        this.emit({ type: 'library' })
+        continue
+      }
+      await updateNode(n.id, (m) => {
+        m.eTag = item.eTag
+        m.metaDirty = m.name !== n.name || m.parentId !== n.parentId
+      })
+    }
+  }
+
+  private async pushNotebooks(g: GraphClient, rootId: string): Promise<void> {
+    const candidates = (await allNodes()).filter((n) => !n.deleted && isDirtyNotebook(n))
+    for (const c of candidates) {
+      const nodes = await allNodes()
+      const n = nodes.find((o) => o.id === c.id)
+      if (!n || n.deleted || !isDirtyNotebook(n)) continue
+      const parent = this.parentRemote(n, new Map(nodes.map((o) => [o.id, o])), rootId)
+      if (!parent) continue
+      if (n.needsDownload && n.remoteId) {
+        // Modifié ici alors qu'une version plus récente attend sur OneDrive.
+        await this.fork(n.id)
+        continue
+      }
+      if (!n.pageIds?.length) continue
+
+      const built = await this.host.buildPdf(n.id)
+      const [sha1, sha256] = await Promise.all([digest('SHA-1', built.bytes), digest('SHA-256', built.bytes)])
+      let item: DriveItem
+      try {
+        item = n.remoteId ? await g.uploadReplace(n.remoteId, built.bytes, n.eTag) : await g.uploadNew(parent, `${n.name}.pdf`, built.bytes)
+      } catch (e) {
+        if (!(e instanceof GraphError) || ![404, 409, 412].includes(e.status)) throw e
+        if (!n.remoteId) {
+          // Un fichier du même nom existe déjà sur OneDrive : on en choisit un autre.
+          await updateNode(n.id, (m) => void (m.name = uniqueName(m.name, [m.name])))
+        } else if (e.status === 404) {
+          await updateNode(n.id, detach)
+        } else {
+          const current = await g.getItem(n.remoteId)
+          if (sameContent(n, current)) {
+            await updateNode(n.id, (m) => {
+              m.eTag = current.eTag
+              m.cTag = current.cTag ?? m.cTag
+            })
+          } else {
+            await this.fork(n.id, current)
+          }
+        }
+        this.again = true
+        this.emit({ type: 'library' })
+        continue
+      }
+      await updateNode(n.id, (m) => {
+        if (!m.remoteId) m.metaDirty = m.name !== n.name || m.parentId !== n.parentId
+        m.remoteId = item.id
+        m.eTag = item.eTag
+        m.cTag = item.cTag ?? ''
+        m.sha1 = sha1
+        m.sha256 = sha256
+        m.uploadedRev = built.rev
+      })
+      this.emit({ type: 'library' })
+    }
+  }
+
+  private async fork(id: string, current?: DriveItem): Promise<void> {
+    let text = ''
+    await mutateNodes(async (s) => {
+      const nodes = await s.all()
+      const n = nodes.find((o) => o.id === id)
+      if (!n || !n.remoteId) return
+      const twin = forkConflict(nodes, n, current?.name?.replace(/\.pdf$/i, ''))
+      if (current?.eTag) twin.eTag = current.eTag
+      s.put(n)
+      s.put(twin)
+      text = conflictText(twin.name, n.name)
+    })
+    if (text) await this.notify([text])
+    this.again = true
+    this.emit({ type: 'library' })
+  }
+
+  /** Télécharge les blocs-notes dont OneDrive détient une version plus récente. */
+  private async downloads(g: GraphClient): Promise<void> {
+    for (const c of await allNodes()) {
+      if (c.kind !== 'notebook' || c.deleted || !c.needsDownload || !c.remoteId) continue
+      const n = await getNode(c.id)
+      if (!n || n.deleted || !n.needsDownload || !n.remoteId || isDirtyNotebook(n)) continue
+      let item: DriveItem
+      let bytes: Uint8Array
+      try {
+        item = await g.getItem(n.remoteId)
+        bytes = await g.download(item)
+      } catch (e) {
+        if (e instanceof GraphError && e.status === 404) continue // le prochain cycle constatera la suppression
+        throw e
+      }
+      const data = await this.host.extract(bytes)
+      const [sha1, sha256] = await Promise.all([digest('SHA-1', bytes), digest('SHA-256', bytes)])
+      const stamp = (m: LibNode) => {
+        m.needsDownload = false
+        m.eTag = item.eTag
+        m.cTag = item.cTag ?? ''
+        m.sha1 = sha1
+        m.sha256 = sha256
+      }
+      if (!data) {
+        await updateNode(n.id, (m) => {
+          stamp(m)
+          m.foreign = true
+        })
+      } else {
+        const content = dataToContent(n.id, data)
+        if (!content.pages.length) content.pages.push({ id: uid(), notebookId: n.id, bg: data.bg, orient: data.orient, rev: 0 } satisfies Page)
+        const ok = await replaceNotebookContent(n.id, n.rev ?? 0, content, (m) => {
+          stamp(m)
+          m.foreign = false
+          m.bg = data.bg
+          m.orient = data.orient
+          m.rev = (m.rev ?? 0) + 1
+          m.uploadedRev = m.rev
+        })
+        if (ok) this.emit({ type: 'replaced', notebookId: n.id })
+      }
+      this.emit({ type: 'library' })
+    }
+  }
+}
