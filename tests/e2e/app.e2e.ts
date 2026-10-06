@@ -28,9 +28,9 @@ afterAll(async () => {
   await new Promise<void>((r) => server?.httpServer.close(() => r()))
 })
 
-/** Un « appareil » : stockage vierge, écran tactile, faux services Microsoft. */
+/** A "device": fresh storage, touch screen, fake Microsoft services. */
 async function device(width = 1280, height = 800): Promise<{ ctx: BrowserContext; page: Page; cdp: CDPSession; errors: string[] }> {
-  const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block', locale: 'fr-FR' })
+  const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 2, hasTouch: true, serviceWorkers: 'block', locale: 'en-GB' })
   await ctx.route('https://login.microsoftonline.com/**', async (route) => {
     const req = route.request()
     const u = new URL(req.url())
@@ -65,7 +65,7 @@ async function device(width = 1280, height = 800): Promise<{ ctx: BrowserContext
 
 type Pt = [number, number, number?]
 
-/** Trace un trait au stylet (avec pression), comme le ferait un S Pen. */
+/** Draws a stroke with the stylus (with pressure), as an S Pen would. */
 async function pen(cdp: CDPSession, pts: Pt[], opts: { lift?: boolean } = {}): Promise<void> {
   const send = (type: string, [x, y, force = 0.5]: Pt, buttons: number) =>
     cdp.send('Input.dispatchMouseEvent', { type: type as 'mouseMoved', x, y, button: buttons || type === 'mouseReleased' ? 'left' : 'none', buttons, clickCount: 1, pointerType: 'pen', force })
@@ -84,12 +84,12 @@ async function fingerDrag(cdp: CDPSession, from: [number, number], to: [number, 
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: point(from[0] + ((to[0] - from[0]) * i) / 8, from[1] + ((to[1] - from[1]) * i) / 8) })
     await new Promise((r) => setTimeout(r, 30))
   }
-  // Fin lente : pas d'élan, pour une position finale reproductible.
+  // Slow ending: no momentum, for a reproducible final position.
   await new Promise((r) => setTimeout(r, 150))
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
 }
 
-/** Une ligne d'écriture cursive factice. */
+/** A line of dummy cursive writing. */
 function scribble(x0: number, y0: number, width: number, seed = 0): Pt[] {
   const pts: Pt[] = []
   for (let i = 0; i <= width; i += 2) {
@@ -125,81 +125,81 @@ async function remoteStrokes(path: string): Promise<number> {
   return data!.pages.reduce((n, p) => n + p.strokes.length, 0)
 }
 
-describe('Plume dans le navigateur', () => {
+describe('Plume in the browser', () => {
   let tablet: Awaited<ReturnType<typeof device>>
 
-  it('démarre, se connecte à OneDrive et crée le dossier Plume', async () => {
+  it('starts, signs in to OneDrive and creates the Plume folder', async () => {
     tablet = await device()
     const { page } = tablet
-    await page.getByText('Aucune note pour le moment').waitFor()
+    await page.getByText('No notes yet').waitFor()
     expect(await chip(page)).toBe('signedOut')
-    await shot(page, '01-bibliotheque-vide')
+    await shot(page, '01-empty-library')
     await page.locator('.sync-chip').click()
-    await page.getByRole('button', { name: 'Se connecter à OneDrive' }).click()
+    await page.getByRole('button', { name: 'Sign in to OneDrive' }).click()
     await page.waitForFunction(() => document.querySelector('.sync-chip')?.getAttribute('data-state') === 'ok')
     expect(logins).toBe(1)
     expect(page.url()).not.toContain('code=')
     expect(drive.tree()).toEqual(['Plume/'])
   })
 
-  it('crée un dossier puis un bloc-notes, visibles aussitôt dans OneDrive', async () => {
+  it('creates a folder then a notebook, visible right away in OneDrive', async () => {
     const { page } = tablet
-    await page.getByRole('button', { name: 'Dossier', exact: true }).click()
-    await page.getByLabel('Nom du dossier').fill('Maths')
-    await page.getByRole('button', { name: 'Créer' }).click()
+    await page.getByRole('button', { name: 'Folder', exact: true }).click()
+    await page.getByLabel('Folder name').fill('Maths')
+    await page.getByRole('button', { name: 'Create' }).click()
     await page.locator('.card.folder', { hasText: 'Maths' }).click()
     await page.locator('.crumbs .current', { hasText: 'Maths' }).waitFor()
-    await page.getByRole('button', { name: 'Bloc-notes', exact: true }).click()
-    await page.getByLabel('Nom').fill('Analyse : chapitre 1')
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByLabel('Name').fill('Calculus : chapter 1')
     await page.getByRole('radio', { name: 'Seyès' }).click()
-    await shot(page, '02-nouveau-bloc-notes')
-    await page.getByRole('button', { name: 'Créer' }).click()
+    await shot(page, '02-new-notebook')
+    await page.getByRole('button', { name: 'Create' }).click()
     await page.locator('canvas.ink').waitFor()
-    await expect.poll(() => drive.tree(), { timeout: 10_000 }).toEqual(['Plume/', 'Plume/Maths/', 'Plume/Maths/Analyse - chapitre 1.pdf'])
+    await expect.poll(() => drive.tree(), { timeout: 10_000 }).toEqual(['Plume/', 'Plume/Maths/', 'Plume/Maths/Calculus - chapter 1.pdf'])
   })
 
-  it('écrit au stylet, surligne, trace un trait droit, gomme, annule et rétablit', async () => {
+  it('writes with the stylus, highlights, draws a straight line, erases, undoes and redoes', async () => {
     const { page, cdp } = tablet
     for (let l = 0; l < 4; l++) await pen(cdp, scribble(330, 150 + l * 34, 420 - l * 60, l))
     expect(await strokeCount(page)).toBe(4)
 
-    await page.getByRole('button', { name: 'Surligneur' }).click()
+    await page.getByRole('button', { name: 'Highlighter' }).click()
     await pen(cdp, [[330, 150], [520, 152], [740, 150]])
-    await page.getByRole('button', { name: 'Trait droit' }).click()
+    await page.getByRole('button', { name: 'Straight line' }).click()
     await pen(cdp, [[330, 300], [500, 330], [760, 300]])
     await settle(page)
     expect(await strokeCount(page)).toBe(6)
-    await shot(page, '03-ecriture')
+    await shot(page, '03-writing')
 
-    // Gomme « trait entier » : un passage sur la 4e ligne la supprime.
-    await page.getByRole('button', { name: 'Gomme', exact: true }).click()
+    // "Whole stroke" eraser: one pass over the 4th line removes it.
+    await page.getByRole('button', { name: 'Eraser', exact: true }).click()
     await pen(cdp, [[400, 250], [400, 268]])
     await settle(page)
     expect(await strokeCount(page)).toBe(5)
 
-    // Gomme précise : coupe la 2e ligne en deux morceaux.
-    await page.getByRole('button', { name: 'Gomme', exact: true }).click()
-    await page.getByRole('button', { name: 'Précise' }).click()
+    // Precise eraser: cuts the 2nd line into two pieces.
+    await page.getByRole('button', { name: 'Eraser', exact: true }).click()
+    await page.getByRole('button', { name: 'Precise' }).click()
     await page.keyboard.press('Escape')
     await page.locator('canvas.ink').click({ position: { x: 5, y: 5 } })
-    await page.getByTitle('Gomme 6 pt').click()
+    await page.getByTitle('Eraser 6 pt').click()
     await pen(cdp, [[500, 180], [500, 200]])
     await settle(page)
     expect(await strokeCount(page)).toBe(6)
 
-    await page.getByRole('button', { name: 'Annuler' }).click()
+    await page.getByRole('button', { name: 'Undo' }).click()
     await settle(page)
     expect(await strokeCount(page)).toBe(5)
-    await page.getByRole('button', { name: 'Annuler' }).click()
+    await page.getByRole('button', { name: 'Undo' }).click()
     await settle(page)
     expect(await strokeCount(page)).toBe(6)
-    await page.getByRole('button', { name: 'Rétablir' }).click()
+    await page.getByRole('button', { name: 'Redo' }).click()
     await settle(page)
     expect(await strokeCount(page)).toBe(5)
-    await page.getByRole('button', { name: 'Stylo', exact: true }).click()
+    await page.getByRole('button', { name: 'Pen', exact: true }).click()
   })
 
-  it('ignore la paume posée pendant que le stylet est là, mais défile au doigt sinon', async () => {
+  it('ignores a resting palm while the stylus is there, but scrolls with a finger otherwise', async () => {
     const { page, cdp } = tablet
     await penHover(cdp, 600, 500)
     const before = await stage(page)
@@ -207,7 +207,7 @@ describe('Plume dans le navigateur', () => {
     await settle(page)
     expect((await stage(page)).equals(before)).toBe(true)
 
-    // Paume posée en plein tracé : le trait continue, la page ne bouge pas.
+    // Palm resting in mid-stroke: the stroke continues, the page does not move.
     await pen(cdp, scribble(330, 420, 100), { lift: false })
     await fingerDrag(cdp, [900, 650], [900, 400], 45)
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: 430, y: 420, button: 'left', buttons: 0, pointerType: 'pen' })
@@ -215,53 +215,53 @@ describe('Plume dans le navigateur', () => {
     expect(await strokeCount(page)).toBe(6)
     const written = await stage(page)
 
-    // Stylet éloigné : le doigt fait défiler.
+    // Stylus away: the finger scrolls.
     await page.waitForTimeout(800)
     await fingerDrag(cdp, [800, 600], [800, 300])
     await settle(page)
     expect((await stage(page)).equals(written)).toBe(false)
-    await shot(page, '04-apres-defilement')
+    await shot(page, '04-after-scroll')
     await fingerDrag(cdp, [800, 300], [800, 700])
     await settle(page)
   })
 
-  it('gère les pages : ajout, fond, duplication, déplacement, suppression', async () => {
+  it('manages pages: add, background, duplicate, move, delete', async () => {
     const { page } = tablet
     await page.getByRole('button', { name: 'Pages' }).first().click()
-    await page.getByRole('button', { name: /Ajouter une page après/ }).click()
+    await page.getByRole('button', { name: /Add a page after/ }).click()
     await expect.poll(() => page.locator('.page-list li').count()).toBe(2)
-    await page.getByLabel('Fond de la page 2').selectOption('dots')
-    await page.locator('.page-list li').nth(0).getByRole('button', { name: 'Dupliquer' }).click()
+    await page.getByLabel('Background of page 2').selectOption('dots')
+    await page.locator('.page-list li').nth(0).getByRole('button', { name: 'Duplicate' }).click()
     await expect.poll(() => page.locator('.page-list li').count()).toBe(3)
     await expect.poll(() => strokeCount(page)).toBe(12)
-    await page.locator('.page-list li').nth(2).getByRole('button', { name: 'Monter' }).click()
+    await page.locator('.page-list li').nth(2).getByRole('button', { name: 'Move up' }).click()
     await shot(page, '05-pages')
-    await page.locator('.page-list li').nth(2).getByRole('button', { name: 'Supprimer' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Supprimer' }).click()
+    await page.locator('.page-list li').nth(2).getByRole('button', { name: 'Delete' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click()
     await expect.poll(() => page.locator('.page-list li').count()).toBe(2)
     await expect.poll(() => strokeCount(page)).toBe(6)
-    await page.locator('.pages-panel').getByRole('button', { name: 'Fermer' }).click()
+    await page.locator('.pages-panel').getByRole('button', { name: 'Close' }).click()
   })
 
-  it('envoie le PDF à la fermeture du bloc-notes ; le PDF contient chaque trait', async () => {
+  it('sends the PDF when the notebook is closed; the PDF contains every stroke', async () => {
     const { page } = tablet
-    await page.getByRole('button', { name: 'Retour à la bibliothèque' }).click()
+    await page.getByRole('button', { name: 'Back to library' }).click()
     await page.locator('.card.notebook').waitFor()
-    await expect.poll(() => remoteStrokes('Plume/Maths/Analyse - chapitre 1.pdf'), { timeout: 15_000 }).toBe(6)
+    await expect.poll(() => remoteStrokes('Plume/Maths/Calculus - chapter 1.pdf'), { timeout: 15_000 }).toBe(6)
     await expect.poll(() => chip(page)).toBe('ok')
-    writeFileSync(`${OUT}export.pdf`, drive.find('Plume/Maths/Analyse - chapitre 1.pdf')!.content!)
-    const data = await extractPlumeData(drive.find('Plume/Maths/Analyse - chapitre 1.pdf')!.content!)
+    writeFileSync(`${OUT}export.pdf`, drive.find('Plume/Maths/Calculus - chapter 1.pdf')!.content!)
+    const data = await extractPlumeData(drive.find('Plume/Maths/Calculus - chapter 1.pdf')!.content!)
     expect(data!.pages.map((p) => p.bg)).toEqual(['seyes', 'dots'])
-    await shot(page, '06-bibliotheque')
+    await shot(page, '06-library')
   })
 
-  it('retrouve tout après un redémarrage, et reste utilisable hors ligne', async () => {
+  it('finds everything again after a restart, and stays usable offline', async () => {
     const { page, cdp, ctx } = tablet
     await page.reload()
     await page.locator('.card.notebook').click()
     await page.locator('canvas.ink').waitFor()
     await settle(page, 600)
-    await shot(page, '07-apres-redemarrage')
+    await shot(page, '07-after-restart')
     expect(await strokeCount(page)).toBe(6)
 
     drive.online = false
@@ -270,43 +270,43 @@ describe('Plume dans le navigateur', () => {
     await settle(page, 1200)
     expect(await strokeCount(page)).toBe(7)
     expect(await chip(page)).toBe('offline')
-    await page.reload().catch(() => {}) // hors ligne sans service worker : le rechargement échoue, les données restent
+    await page.reload().catch(() => {}) // offline without a service worker: the reload fails, the data stays
     drive.online = true
     await ctx.setOffline(false)
     await page.goto(url)
-    await expect.poll(() => remoteStrokes('Plume/Maths/Analyse - chapitre 1.pdf'), { timeout: 15_000 }).toBe(7)
+    await expect.poll(() => remoteStrokes('Plume/Maths/Calculus - chapter 1.pdf'), { timeout: 15_000 }).toBe(7)
   })
 
-  it('un second appareil retrouve le même contenu, modifiable', async () => {
+  it('a second device gets the same content, editable', async () => {
     const pc = await device(1600, 900)
     const { page } = pc
     await page.locator('.sync-chip').click()
-    await page.getByRole('button', { name: 'Se connecter à OneDrive' }).click()
+    await page.getByRole('button', { name: 'Sign in to OneDrive' }).click()
     await page.locator('.card.folder', { hasText: 'Maths' }).click()
     await page.locator('.card.notebook', { hasText: '2 pages' }).click()
     await page.locator('canvas.ink').waitFor()
     await settle(page, 600)
     expect(await strokeCount(page)).toBe(7)
-    await shot(page, '08-second-appareil')
-    // À la souris, sur PC.
+    await shot(page, '08-second-device')
+    // With the mouse, on a PC.
     await page.mouse.move(700, 600)
     await page.mouse.down()
     await page.mouse.move(800, 640, { steps: 12 })
     await page.mouse.up()
-    await page.getByRole('button', { name: 'Retour à la bibliothèque' }).click()
-    await expect.poll(() => remoteStrokes('Plume/Maths/Analyse - chapitre 1.pdf'), { timeout: 15_000 }).toBe(8)
-    expect(drive.tree()).toEqual(['Plume/', 'Plume/Maths/', 'Plume/Maths/Analyse - chapitre 1.pdf'])
+    await page.getByRole('button', { name: 'Back to library' }).click()
+    await expect.poll(() => remoteStrokes('Plume/Maths/Calculus - chapter 1.pdf'), { timeout: 15_000 }).toBe(8)
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Maths/', 'Plume/Maths/Calculus - chapter 1.pdf'])
     expect(pc.errors).toEqual([])
     await pc.ctx.close()
 
-    // De retour sur la tablette : la version du PC arrive toute seule.
+    // Back on the tablet: the PC version arrives by itself.
     await tablet.page.reload()
     await expect.poll(() => strokeCount(tablet.page), { timeout: 15_000 }).toBe(8)
     expect(tablet.errors).toEqual([])
   })
 
-  it('une fois installée, s’ouvre et fonctionne sans aucun réseau', async () => {
-    const ctx = await browser.newContext({ viewport: { width: 800, height: 1280 }, deviceScaleFactor: 2, hasTouch: true, locale: 'fr-FR' })
+  it('once installed, opens and works with no network at all', async () => {
+    const ctx = await browser.newContext({ viewport: { width: 800, height: 1280 }, deviceScaleFactor: 2, hasTouch: true, locale: 'en-GB' })
     const page = await ctx.newPage()
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(String(e)))
@@ -315,14 +315,14 @@ describe('Plume dans le navigateur', () => {
     await page.waitForFunction(() => !!navigator.serviceWorker.controller)
     await ctx.setOffline(true)
     await page.reload()
-    await page.getByRole('button', { name: 'Bloc-notes', exact: true }).click()
-    await page.getByRole('button', { name: 'Créer' }).click()
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByRole('button', { name: 'Create' }).click()
     await page.locator('canvas.ink').waitFor()
     const cdp = await ctx.newCDPSession(page)
     await pen(cdp, scribble(150, 300, 400))
     await settle(page)
     expect(await strokeCount(page)).toBe(1)
-    await shot(page, '09-hors-ligne-portrait')
+    await shot(page, '09-offline-portrait')
     await page.reload()
     await page.locator('canvas.ink').waitFor()
     expect(await strokeCount(page)).toBe(1)
@@ -330,16 +330,16 @@ describe('Plume dans le navigateur', () => {
     await ctx.close()
   })
 
-  it('reste utilisable sur un écran de téléphone', async () => {
+  it('stays usable on a phone screen', async () => {
     const phone = await device(400, 800)
     const { page } = phone
-    await page.getByRole('button', { name: 'Bloc-notes', exact: true }).click()
-    await shot(page, '10-telephone-dialogue')
-    await page.getByRole('button', { name: 'Créer' }).click()
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await shot(page, '10-phone-dialog')
+    await page.getByRole('button', { name: 'Create' }).click()
     await page.locator('canvas.ink').waitFor()
-    await page.getByRole('button', { name: 'Stylo', exact: true }).click()
-    await shot(page, '11-telephone-editeur')
-    // Aucun bouton de la barre d'outils ne déborde de l'écran.
+    await page.getByRole('button', { name: 'Pen', exact: true }).click()
+    await shot(page, '11-phone-editor')
+    // No toolbar button overflows the screen.
     const overflow = await page.evaluate(() => [...document.querySelectorAll('.toolbar > *, .toolbar .tools > *')].filter((el) => el.getBoundingClientRect().right > innerWidth + 0.5 && getComputedStyle(el).display !== 'none').length)
     expect(overflow).toBe(0)
     await phone.ctx.close()

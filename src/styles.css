@@ -74,7 +74,7 @@ button:focus-visible,
   color: var(--muted);
 }
 
-/* ---------- Boutons ---------- */
+/* ---------- Buttons ---------- */
 
 .btn {
   display: inline-flex;
@@ -160,7 +160,7 @@ button:focus-visible,
   height: 19px;
 }
 
-/* ---------- Bibliothèque ---------- */
+/* ---------- Library ---------- */
 
 .library {
   max-width: 1180px;
@@ -329,7 +329,7 @@ button:focus-visible,
   padding-top: 6px;
 }
 
-/* Aperçus des fonds de page */
+/* Page background previews */
 
 .paper {
   background-color: #fff;
@@ -357,7 +357,7 @@ button:focus-visible,
   background-size: 100% 100%, 100% 12px, 100% 3px, 12px 100%;
 }
 
-/* ---------- Indicateur OneDrive ---------- */
+/* ---------- OneDrive indicator ---------- */
 
 .sync-chip {
   display: inline-flex;
@@ -424,7 +424,7 @@ button:focus-visible,
   }
 }
 
-/* ---------- Fenêtres flottantes ---------- */
+/* ---------- Popovers ---------- */
 
 .popover {
   position: fixed;
@@ -561,7 +561,7 @@ button:focus-visible,
   font-weight: 600;
 }
 
-/* ---------- Boîtes de dialogue ---------- */
+/* ---------- Dialogs ---------- */
 
 .dialog {
   width: min(460px, calc(100vw - 24px));
@@ -734,7 +734,7 @@ button:focus-visible,
   font-size: 14.5px;
 }
 
-/* ---------- Écran d'écriture ---------- */
+/* ---------- Writing screen ---------- */
 
 .editor {
   display: flex;

@@ -1,6 +1,6 @@
-// Fabrication du PDF d'un bloc-notes : pages vectorielles identiques à l'écran,
-// chacune accompagnée de ses données modifiables (dictionnaire PieceInfo, le
-// mécanisme prévu par le format PDF pour les données privées d'une application).
+// Builds the PDF of a notebook: vector pages identical to the screen, each
+// carrying its editable data (PieceInfo dictionary, the mechanism the PDF
+// format provides for an application's private data).
 
 import { PDFDocument, PDFName, PDFString, type PDFRef } from 'pdf-lib'
 import { strToU8, zlibSync } from 'fflate'
@@ -22,17 +22,17 @@ export interface PdfNotebookInput {
 
 export interface PageCacheEntry {
   rev: number
-  /** Dessin de la page (flux PDF compressé). */
+  /** Drawing of the page (compressed PDF stream). */
   content: Uint8Array
-  /** Données modifiables de la page (compressées). */
+  /** Editable data of the page (compressed). */
   data: Uint8Array
 }
 
-/** Rendu des pages déjà calculé, pour ne refaire que les pages modifiées. */
+/** Already computed page renderings, so that only modified pages are redone. */
 export type PageCache = Map<string, PageCacheEntry>
 
 const num = (v: number) => String(Math.round(v * 100) / 100)
-/** Précision de 0,05 pt (0,02 mm), suffisante pour un contour. */
+/** Precision of 0.05 pt (0.02 mm), enough for an outline. */
 const fine = (v: number) => String(Math.round(v * 20) / 20)
 
 function rgb(hex: string): string {
@@ -40,13 +40,13 @@ function rgb(hex: string): string {
   return `${num(r)} ${num(g)} ${num(b)}`
 }
 
-/** Chemin exprimé par rapport à son premier point, pour des nombres courts. */
+/** Path expressed relative to its first point, for short numbers. */
 function localPath(flat: ArrayLike<number>, paint: string): string {
   const ox = Math.round(flat[0])
   const oy = Math.round(flat[1])
   let s = `q 1 0 0 1 ${ox} ${oy} cm\n${fine(flat[0] - ox)} ${fine(flat[1] - oy)} m\n`
   for (let i = 2; i < flat.length; i += 2) s += `${fine(flat[i] - ox)} ${fine(flat[i + 1] - oy)} l\n`
-  // Un point isolé : segment de longueur nulle, rendu comme un point rond.
+  // A single point: zero-length segment, rendered as a round dot.
   if (flat.length === 2) s += `${fine(flat[0] - ox)} ${fine(flat[1] - oy)} l\n`
   return `${s}${paint} Q\n`
 }
@@ -69,7 +69,7 @@ function pageContent(page: PdfPageInput): string {
   let fill = ''
   for (const s of page.strokes) {
     if (s.tool === 'pen') {
-      // Contour arrondi comme à l'écran, puis allégé : écart maximal de 0,05 pt (0,02 mm).
+      // Outline rounded as on screen, then lightened: maximum deviation 0.05 pt (0.02 mm).
       const outline = simplify(smoothClosed(penOutline(s.pts, s.width)), 0.05)
       if (outline.length < 4) continue
       const color = rgb(s.color)

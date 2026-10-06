@@ -1,5 +1,5 @@
-// Worker : fabrique et relit les PDF hors du fil principal, pour ne jamais
-// ralentir l'écriture.
+// Worker: builds and reads PDFs off the main thread, so that writing is
+// never slowed down.
 
 import { buildFromDb } from './fromDb'
 import { extractPlumeData } from './extract'

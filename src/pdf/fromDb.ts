@@ -3,14 +3,14 @@ import { buildNotebookPdf, type PageCache } from './build'
 
 export interface BuiltPdf {
   bytes: Uint8Array
-  /** Révision du bloc-notes contenue dans ce PDF. */
+  /** Notebook revision contained in this PDF. */
   rev: number
 }
 
-/** Lit un bloc-notes dans le stockage local et produit son PDF. */
+/** Reads a notebook from local storage and produces its PDF. */
 export async function buildFromDb(notebookId: string): Promise<BuiltPdf> {
   const snap = await snapshotNotebook(notebookId)
-  if (!snap) throw new Error('Bloc-notes introuvable')
+  if (!snap) throw new Error('Notebook not found')
   const cache: PageCache = new Map()
   for (const p of snap.pages) if (p.cached) cache.set(p.id, p.cached)
   const bytes = await buildNotebookPdf(

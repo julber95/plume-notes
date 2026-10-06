@@ -1,10 +1,10 @@
-// Synchronisation avec OneDrive.
+// OneDrive synchronisation.
 //
-// Principe : le stockage local fait foi pendant l'écriture ; chaque nœud porte
-// son propre état (« à créer », « à renommer », « à envoyer », « à supprimer »).
-// Un cycle de synchronisation lit d'abord les changements OneDrive, puis envoie
-// tout ce qui est en attente. Rien n'est jamais écrasé en silence : si un
-// bloc-notes a changé des deux côtés, les deux versions sont conservées.
+// Principle: local storage is the source of truth while writing; each node
+// carries its own state ("to create", "to rename", "to upload", "to delete").
+// A sync cycle first reads the OneDrive changes, then pushes everything that
+// is pending. Nothing is ever silently overwritten: if a notebook changed on
+// both sides, both versions are kept.
 
 import { ONEDRIVE_FOLDER } from '../config'
 import { allNodes, getNode, kvGet, kvSet, mutateNodes, purgeNodes, replaceNotebookContent, updateNode } from '../db'
@@ -30,13 +30,13 @@ export interface Notice {
 export type SyncEvent = { type: 'status' } | { type: 'library' } | { type: 'replaced'; notebookId: string } | { type: 'notices' }
 
 export interface SyncHost {
-  /** 'disabled' : OneDrive non configuré ; 'signedOut' : connexion requise. */
+  /** 'disabled': OneDrive not configured; 'signedOut': sign-in required. */
   authState(): 'disabled' | 'signedOut' | 'ready'
   graph(): GraphClient
   isOnline(): boolean
   buildPdf(notebookId: string): Promise<BuiltPdf>
   extract(bytes: Uint8Array): Promise<NotebookData | null>
-  /** Bloc-notes actuellement ouvert dans l'éditeur, s'il y en a un. */
+  /** Notebook currently open in the editor, if any. */
   openNotebookId(): string | null
 }
 
@@ -45,7 +45,7 @@ async function digest(algo: string, bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** Le contenu OneDrive est-il celui que nous connaissons déjà ? */
+/** Is the OneDrive content the one we already know? */
 function sameContent(n: LibNode, it: DriveItem): boolean {
   if (it.cTag && n.cTag && it.cTag === n.cTag) return true
   const h = it.file?.hashes
@@ -54,7 +54,7 @@ function sameContent(n: LibNode, it: DriveItem): boolean {
   return false
 }
 
-/** Coupe le lien avec OneDrive : le nœud sera renvoyé comme un nouvel élément. */
+/** Cuts the link with OneDrive: the node will be uploaded again as a new item. */
 function detach(n: LibNode): void {
   n.remoteId = n.eTag = n.cTag = n.sha1 = n.sha256 = undefined
   n.metaDirty = false
@@ -65,8 +65,8 @@ function detach(n: LibNode): void {
 }
 
 /**
- * Conflit : `n` garde le contenu local et devient une copie à part ; un nouveau
- * nœud reprend la place de la version OneDrive, qui sera téléchargée.
+ * Conflict: `n` keeps the local content and becomes a separate copy; a new
+ * node takes the place of the OneDrive version, which will be downloaded.
  */
 function forkConflict(nodes: LibNode[], n: LibNode, remoteName?: string, remoteParentId?: string): LibNode {
   const now = Date.now()
@@ -87,14 +87,14 @@ function forkConflict(nodes: LibNode[], n: LibNode, remoteName?: string, remoteP
     needsDownload: true,
   }
   detach(n)
-  n.name = uniqueName(`${twin.name} (conflit ${conflictStamp(new Date(now))})`, siblingNames(nodes, n.parentId, 'notebook', n.id))
+  n.name = uniqueName(`${twin.name} (conflict ${conflictStamp(new Date(now))})`, siblingNames(nodes, n.parentId, 'notebook', n.id))
   n.updatedAt = now
   nodes.push(twin)
   return twin
 }
 
 const conflictText = (original: string, copy: string) =>
-  `« ${original} » a été modifié à deux endroits. Vos modifications faites ici sont conservées dans « ${copy} ».`
+  `"${original}" was modified in two places. The changes you made here are kept in "${copy}".`
 
 export class SyncEngine {
   status: SyncStatus = { state: 'disabled' }
@@ -118,7 +118,7 @@ export class SyncEngine {
     this.emit({ type: 'status' })
   }
 
-  /** Recalcule l'état affiché sans rien envoyer (après une modification locale). */
+  /** Recomputes the displayed state without sending anything (after a local change). */
   async refresh(): Promise<void> {
     if (this.running) return
     const auth = this.host.authState()
@@ -129,7 +129,7 @@ export class SyncEngine {
     await this.setStatus(pending ? 'pending' : 'ok')
   }
 
-  /** Lance une synchronisation (ou en programme une autre si l'une est en cours). */
+  /** Starts a sync (or schedules another one if one is already running). */
   sync(): Promise<void> {
     if (this.running) {
       this.again = true
@@ -155,7 +155,7 @@ export class SyncEngine {
       } catch (e) {
         if (e instanceof AuthRequiredError) return this.setStatus(this.host.authState() === 'ready' ? 'error' : 'signedOut', e.message)
         if (e instanceof GraphError && e.status === 0) return this.setStatus('offline')
-        console.error('Synchronisation', e)
+        console.error('Sync', e)
         return this.setStatus('error', e instanceof Error ? e.message : String(e))
       }
     } while (this.again && ++rounds < 8)
@@ -163,7 +163,7 @@ export class SyncEngine {
     await this.setStatus(pending ? 'pending' : 'ok')
   }
 
-  // ---------- Avis à l'utilisateur ----------
+  // ---------- Notices to the user ----------
 
   async notices(): Promise<Notice[]> {
     return (await kvGet<Notice[]>('notices')) ?? []
@@ -195,12 +195,12 @@ export class SyncEngine {
       await this.pull(g, rootId)
     } catch (e) {
       if (!(e instanceof GraphError) || e.status !== 404) throw e
-      // Le dossier Plume a disparu de OneDrive. On ne supprime rien ici : tout
-      // le contenu local sera renvoyé dans un dossier recréé.
+      // The Plume folder has disappeared from OneDrive. Nothing is deleted here:
+      // all local content will be uploaded again into a recreated folder.
       await this.detachAll()
       await kvSet('rootRemoteId', undefined)
       await kvSet('deltaLink', undefined)
-      await this.notify([`Le dossier « ${ONEDRIVE_FOLDER} » avait disparu de OneDrive. Il a été recréé à partir du contenu de cet appareil.`])
+      await this.notify([`The "${ONEDRIVE_FOLDER}" folder had disappeared from OneDrive. It was recreated from the content of this device.`])
       this.again = true
       return
     }
@@ -226,7 +226,7 @@ export class SyncEngine {
     this.emit({ type: 'library' })
   }
 
-  /** Applique localement les changements faits sur OneDrive. */
+  /** Applies locally the changes made on OneDrive. */
   private async pull(g: GraphClient, rootId: string): Promise<void> {
     const ch = await g.changes(rootId, await kvGet<string>('deltaLink'))
     const remote = new Map<string, DriveItem>()
@@ -252,14 +252,14 @@ export class SyncEngine {
           for (const c of childrenOf(n.id)) remoteDelete(c)
           if (childrenOf(n.id).length === 0) removed.add(n.id)
           else {
-            // Il reste du contenu local non envoyé : le dossier sera recréé.
+            // Unsent local content remains: the folder will be recreated.
             detach(n)
             dirty.add(n)
           }
         } else if ((isDirtyNotebook(n) && !n.needsDownload) || n.id === openId) {
           detach(n)
           dirty.add(n)
-          notices.push(`« ${n.name} » a été supprimé sur OneDrive alors qu'il contenait des modifications non envoyées. Il a été conservé et sera renvoyé.`)
+          notices.push(`"${n.name}" was deleted on OneDrive while it contained unsent changes. It was kept and will be uploaded again.`)
         } else {
           removed.add(n.id)
         }
@@ -292,7 +292,7 @@ export class SyncEngine {
         let n = byRemote.get(it.id)
         if (n && (removed.has(n.id) || n.deleted || n.kind !== kind)) return n.deleted ? n : undefined
         if (!n && isFolder) {
-          // Un dossier du même nom créé ici et pas encore envoyé : c'est le même.
+          // A folder with the same name created here and not yet uploaded: it is the same one.
           n = nodes.find((c) => !c.remoteId && sameSpot(c))
           if (n) {
             n.remoteId = it.id
@@ -302,7 +302,7 @@ export class SyncEngine {
           }
         }
         if (!n) {
-          // Un bloc-notes local du même nom, jamais envoyé, cède le nom.
+          // A local notebook with the same name, never uploaded, gives up the name.
           for (const c of nodes) {
             if (!c.remoteId && sameSpot(c)) {
               c.name = uniqueName(c.name, [...siblingNames(nodes, parentId, kind, c.id), name])
@@ -340,9 +340,9 @@ export class SyncEngine {
         }
         return n
       }
-      // D'abord les créations, renommages et déplacements, ensuite les
-      // suppressions : un fichier sorti d'un dossier avant que celui-ci soit
-      // supprimé ne doit pas disparaître avec lui.
+      // First creations, renames and moves, then deletions: a file moved out
+      // of a folder before that folder is deleted must not disappear with
+      // it.
       for (const it of remote.values()) if (!it.deleted) ensure(it)
 
       for (const it of remote.values()) {
@@ -375,7 +375,7 @@ export class SyncEngine {
     }
   }
 
-  /** Identifiant OneDrive du dossier parent, s'il existe déjà là-bas. */
+  /** OneDrive id of the parent folder, if it already exists there. */
   private parentRemote(n: LibNode, byId: Map<string, LibNode>, rootId: string): string | undefined {
     if (n.parentId === ROOT) return rootId
     const p = byId.get(n.parentId)
@@ -425,7 +425,7 @@ export class SyncEngine {
         item = await g.patch(n.remoteId, n.kind === 'folder' ? n.name : `${n.name}.pdf`, parent)
       } catch (e) {
         if (!(e instanceof GraphError) || (e.status !== 409 && e.status !== 404)) throw e
-        // 409 : nom déjà pris sur OneDrive ; 404 : l'élément n'existe plus là-bas.
+        // 409: name already taken on OneDrive; 404: the item no longer exists there.
         await updateNode(n.id, (m) => {
           if (e.status === 409) m.name = uniqueName(m.name, [m.name])
           else detach(m)
@@ -450,7 +450,7 @@ export class SyncEngine {
       const parent = this.parentRemote(n, new Map(nodes.map((o) => [o.id, o])), rootId)
       if (!parent) continue
       if (n.needsDownload && n.remoteId) {
-        // Modifié ici alors qu'une version plus récente attend sur OneDrive.
+        // Modified here while a newer version is waiting on OneDrive.
         await this.fork(n.id)
         continue
       }
@@ -464,7 +464,7 @@ export class SyncEngine {
       } catch (e) {
         if (!(e instanceof GraphError) || ![404, 409, 412].includes(e.status)) throw e
         if (!n.remoteId) {
-          // Un fichier du même nom existe déjà sur OneDrive : on en choisit un autre.
+          // A file with the same name already exists on OneDrive: pick another one.
           await updateNode(n.id, (m) => void (m.name = uniqueName(m.name, [m.name])))
         } else if (e.status === 404) {
           await updateNode(n.id, detach)
@@ -513,7 +513,7 @@ export class SyncEngine {
     this.emit({ type: 'library' })
   }
 
-  /** Télécharge les blocs-notes dont OneDrive détient une version plus récente. */
+  /** Downloads the notebooks for which OneDrive holds a newer version. */
   private async downloads(g: GraphClient): Promise<void> {
     for (const c of await allNodes()) {
       if (c.kind !== 'notebook' || c.deleted || !c.needsDownload || !c.remoteId) continue
@@ -525,7 +525,7 @@ export class SyncEngine {
         item = await g.getItem(n.remoteId)
         bytes = await g.download(item)
       } catch (e) {
-        if (e instanceof GraphError && e.status === 404) continue // le prochain cycle constatera la suppression
+        if (e instanceof GraphError && e.status === 404) continue // the next cycle will notice the deletion
         throw e
       }
       const data = await this.host.extract(bytes)

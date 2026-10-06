@@ -15,7 +15,7 @@ function setup(over: Partial<AuthDeps> = {}) {
     storage: memoryStorage(),
     session: memoryStorage(),
     clientId: 'client-123',
-    redirectUri: 'https://exemple.github.io/plume/',
+    redirectUri: 'https://example.github.io/plume/',
     navigate: (u) => void visited.push(u),
     fetchFn: async (_url, init) => {
       requests.push(new URLSearchParams(String(init?.body)))
@@ -31,12 +31,12 @@ async function sha256url(s: string): Promise<string> {
   return btoa(String.fromCharCode(...d)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-describe('connexion Microsoft', () => {
-  it('sans identifiant client, OneDrive est simplement désactivé', () => {
+describe('Microsoft sign-in', () => {
+  it('without a client ID, OneDrive is simply disabled', () => {
     expect(setup({ clientId: '' }).auth.state).toBe('disabled')
   })
 
-  it('suit le flux code d’autorisation + PKCE de bout en bout', async () => {
+  it('follows the authorization code + PKCE flow end to end', async () => {
     const t = setup()
     expect(t.auth.state).toBe('signedOut')
     await t.auth.login()
@@ -46,39 +46,39 @@ describe('connexion Microsoft', () => {
     expect([q.get('client_id'), q.get('response_type'), q.get('redirect_uri'), q.get('scope'), q.get('code_challenge_method')]).toEqual([
       'client-123',
       'code',
-      'https://exemple.github.io/plume/',
+      'https://example.github.io/plume/',
       'Files.ReadWrite offline_access',
       'S256',
     ])
     const res = await t.auth.handleRedirect(new URLSearchParams({ code: 'CODE', state: q.get('state')! }))
     expect(res).toEqual({ handled: true })
     const sent = t.requests[0]
-    expect([sent.get('grant_type'), sent.get('code'), sent.get('client_id'), sent.get('redirect_uri')]).toEqual(['authorization_code', 'CODE', 'client-123', 'https://exemple.github.io/plume/'])
-    // Le défi envoyé à la connexion correspond bien au vérificateur présenté ensuite.
+    expect([sent.get('grant_type'), sent.get('code'), sent.get('client_id'), sent.get('redirect_uri')]).toEqual(['authorization_code', 'CODE', 'client-123', 'https://example.github.io/plume/'])
+    // The challenge sent at sign-in matches the verifier presented afterwards.
     expect(await sha256url(sent.get('code_verifier')!)).toBe(q.get('code_challenge'))
     expect(t.auth.state).toBe('ready')
     expect(await t.auth.getToken()).toBe('A1')
-    // Au redémarrage, la session est retrouvée.
+    // On restart, the session is found again.
     expect(new Auth(t.deps).state).toBe('ready')
   })
 
-  it('refuse une réponse dont l’état ne correspond pas', async () => {
+  it('rejects a response whose state does not match', async () => {
     const t = setup()
     await t.auth.login()
-    const res = await t.auth.handleRedirect(new URLSearchParams({ code: 'CODE', state: 'autre' }))
+    const res = await t.auth.handleRedirect(new URLSearchParams({ code: 'CODE', state: 'other' }))
     expect(res.error).toBeTruthy()
     expect(t.auth.state).toBe('signedOut')
     expect(t.requests.length).toBe(0)
   })
 
-  it('ignore un paramètre ?code= qui ne vient pas d’une connexion en cours', async () => {
+  it('ignores a ?code= parameter that does not come from a sign-in in progress', async () => {
     const t = setup()
     expect(await t.auth.handleRedirect(new URLSearchParams({ code: 'X', state: 'Y' }))).toEqual({ handled: false })
   })
 
-  it('renouvelle le jeton expiré, une seule fois même si plusieurs appels arrivent ensemble', async () => {
+  it('renews the expired token, only once even if several calls arrive together', async () => {
     const t = setup()
-    t.deps.storage.setItem('plume.auth', JSON.stringify({ access: 'VIEUX', expires: Date.now() - 1000, refresh: 'R0' }))
+    t.deps.storage.setItem('plume.auth', JSON.stringify({ access: 'OLD', expires: Date.now() - 1000, refresh: 'R0' }))
     const auth = new Auth(t.deps)
     t.setReply(() => Response.json({ access_token: 'A2', refresh_token: 'R2', expires_in: 3600 }))
     expect(await Promise.all([auth.getToken(), auth.getToken()])).toEqual(['A2', 'A2'])
@@ -87,22 +87,22 @@ describe('connexion Microsoft', () => {
     expect(JSON.parse(t.deps.storage.getItem('plume.auth')!).refresh).toBe('R2')
   })
 
-  it('session expirée : demande une reconnexion, sans rien casser hors ligne', async () => {
+  it('expired session: asks to sign in again, without breaking anything offline', async () => {
     const t = setup()
-    t.deps.storage.setItem('plume.auth', JSON.stringify({ access: 'VIEUX', expires: 0, refresh: 'R0' }))
+    t.deps.storage.setItem('plume.auth', JSON.stringify({ access: 'OLD', expires: 0, refresh: 'R0' }))
     let auth = new Auth(t.deps)
-    // Hors ligne : la session est conservée.
+    // Offline: the session is kept.
     auth = new Auth({ ...t.deps, fetchFn: async () => Promise.reject(new TypeError('Failed to fetch')) })
     await expect(auth.getToken()).rejects.toBeInstanceOf(GraphError)
     expect(auth.state).toBe('ready')
-    // Refus de Microsoft : il faut se reconnecter.
+    // Refused by Microsoft: the user must sign in again.
     auth = new Auth(t.deps)
     t.setReply(() => Response.json({ error: 'invalid_grant', error_description: 'expired' }, { status: 400 }))
     await expect(auth.getToken()).rejects.toBeInstanceOf(AuthRequiredError)
     expect(auth.state).toBe('signedOut')
   })
 
-  it('tente une reconnexion silencieuse une seule fois', async () => {
+  it('tries a silent sign-in only once', async () => {
     const t = setup()
     await t.auth.login()
     await t.auth.handleRedirect(new URLSearchParams({ code: 'C', state: new URL(t.visited[0]).searchParams.get('state')! }))

@@ -1,56 +1,57 @@
 # Plume
 
-Prise de notes manuscrites, synchronisée avec OneDrive. Chaque bloc-notes est un
-PDF rangé dans le dossier `Plume` de OneDrive, lisible partout, et reste
-modifiable trait par trait dans l'application.
+Handwritten note-taking, synced with OneDrive. Each notebook is a PDF stored
+in the `Plume` folder of OneDrive, readable anywhere, and stays editable
+stroke by stroke in the application.
 
-Application web installable (PWA) : tablette Android avec stylet, et tout
-navigateur récent sur ordinateur.
+Installable web application (PWA): Android tablet with a stylus, and any
+recent browser on a computer.
 
-**Mise en service (sans programmer) : voir [docs/GUIDE.md](docs/GUIDE.md).**
+**Setup (no programming needed): see [docs/GUIDE.md](docs/GUIDE.md).**
 
-## Ce que fait la version 1
+## What version 1 does
 
-- Bibliothèque de dossiers et de blocs-notes, reproduite à l'identique dans
-  OneDrive (création, renommage, déplacement, suppression, dans les deux sens).
-- Pages A4, portrait ou paysage, fonds blanc, ligné, quadrillé, pointillé, Seyès.
-- Stylo sensible à la pression, surligneur (sous l'encre), gomme (trait entier ou
-  précise), trait droit, annuler / rétablir.
-- Gestion des pages : ajouter, dupliquer, déplacer, supprimer, changer le fond.
-- Rejet de la paume ; défilement et zoom aux doigts ; souris sur ordinateur.
-- Enregistrement local immédiat de chaque trait ; fonctionnement hors ligne.
-- Export PDF automatique vers OneDrive, avec indicateur d'état.
-- En cas de modification à deux endroits : les deux versions sont conservées.
+- Library of folders and notebooks, mirrored exactly in OneDrive (create,
+  rename, move, delete, in both directions).
+- A4 pages, portrait or landscape, with blank, lined, grid, dotted and Seyès
+  backgrounds.
+- Pressure-sensitive pen, highlighter (under the ink), eraser (whole stroke
+  or precise), straight line, undo / redo.
+- Page management: add, duplicate, move, delete, change the background.
+- Palm rejection; scroll and zoom with fingers; mouse on a computer.
+- Every stroke saved locally at once; works offline.
+- Automatic PDF export to OneDrive, with a status indicator.
+- When a notebook is modified in two places, both versions are kept.
 
-Prévu pour la version 2 : formes et repère, lasso, import de PDF et d'images,
-vignettes des pages, stylos favoris.
+Planned for version 2: shapes and axes, lasso, PDF and image import, page
+thumbnails, favourite pens.
 
-## Développement
+## Development
 
 ```
 npm install
-npm run dev        # application en local sur http://localhost:5173
-npm test           # tests automatisés (export PDF, synchronisation, connexion)
-npm run test:e2e   # application pilotée dans Chromium face à un faux OneDrive
-npm run build      # version de production dans dist/
+npm run dev        # application locally on http://localhost:5173
+npm test           # automated tests (PDF export, sync, sign-in)
+npm run test:e2e   # application driven in Chromium against a fake OneDrive
+npm run build      # production build in dist/
 ```
 
-`npm run test:e2e` demande Chromium : `npx playwright install chromium`.
+`npm run test:e2e` needs Chromium: `npx playwright install chromium`.
 
-## Organisation du code
+## Code layout
 
-| Dossier | Rôle |
+| Folder | Role |
 | --- | --- |
-| `src/model.ts`, `src/db.ts` | Types et stockage local (IndexedDB) |
-| `src/geometry.ts`, `src/backgrounds.ts` | Forme des traits et fonds, communs à l'écran et au PDF |
-| `src/pdf/` | Fabrication et relecture des PDF (dans un worker) |
-| `src/sync/` | Connexion Microsoft, client OneDrive, moteur de synchronisation |
-| `src/ui/` | Bibliothèque, écran d'écriture, moteur de tracé |
-| `tests/` | Tests, dont un faux OneDrive en mémoire |
+| `src/model.ts`, `src/db.ts` | Types and local storage (IndexedDB) |
+| `src/geometry.ts`, `src/backgrounds.ts` | Stroke shapes and backgrounds, shared by screen and PDF |
+| `src/pdf/` | Building and reading PDFs (in a worker) |
+| `src/sync/` | Microsoft sign-in, OneDrive client, sync engine |
+| `src/ui/` | Library, writing screen, drawing engine |
+| `tests/` | Tests, including an in-memory fake OneDrive |
 
-Les données modifiables voyagent dans le PDF lui-même (dictionnaires `PieceInfo`,
-le mécanisme prévu par le format PDF pour les données privées d'une application) :
-un seul fichier par bloc-notes, que l'on peut déplacer ou renommer librement.
+The editable data travels inside the PDF itself (`PieceInfo` dictionaries, the
+mechanism the PDF format provides for an application's private data): a single
+file per notebook, which can be moved or renamed freely.
 
-Pour mesurer les temps de rendu : `localStorage['plume.debug'] = '1'`, puis onglet
-Performance du navigateur (mesures `plume-scene` et `plume-live`).
+To measure rendering times: `localStorage['plume.debug'] = '1'`, then the
+browser's Performance tab (`plume-scene` and `plume-live` measures).

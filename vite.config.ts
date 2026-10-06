@@ -2,8 +2,8 @@ import { defineConfig } from 'vitest/config'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
-  // Chemins relatifs : l'application fonctionne quel que soit le sous-dossier
-  // où elle est hébergée (par exemple https://moncompte.github.io/plume/).
+  // Relative paths: the application works whatever sub-folder it is hosted in
+  // (for example https://myaccount.github.io/plume/).
   base: './',
   define: { __APP_VERSION__: JSON.stringify('1.0.0') },
   build: { target: 'es2022' },
@@ -15,8 +15,8 @@ export default defineConfig({
       manifest: {
         name: 'Plume',
         short_name: 'Plume',
-        description: 'Prise de notes manuscrites synchronisée avec OneDrive',
-        lang: 'fr',
+        description: 'Handwritten notes synced with OneDrive',
+        lang: 'en',
         start_url: './',
         scope: './',
         display: 'standalone',

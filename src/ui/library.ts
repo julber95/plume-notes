@@ -1,4 +1,4 @@
-// Bibliothèque : dossiers et blocs-notes, tels qu'ils apparaissent dans OneDrive.
+// Library: folders and notebooks, as they appear in OneDrive.
 
 import { allNodes, kvGet, kvSet } from '../db'
 import { createFolder, createNotebook, deleteNode, moveNode, pathTo, renameNode, subtree } from '../library'
@@ -9,17 +9,17 @@ import { button, confirmDialog, dialogButtons, h, iconButton, icons, openDialog,
 export interface LibraryDeps {
   engine: SyncEngine
   syncChip: HTMLElement
-  /** Ouvre un dossier ou un bloc-notes. */
+  /** Opens a folder or a notebook. */
   open(node: LibNode): void
   goTo(folderId: string): void
   openSettings(): void
-  /** La bibliothèque a été modifiée localement. */
+  /** The library was modified locally. */
   changed(): void
-  /** false : la synchronisation n'est pas active (suppression locale uniquement). */
+  /** false: sync is not active (local deletion only). */
   synced(): boolean
 }
 
-const collator = new Intl.Collator('fr', { numeric: true, sensitivity: 'base' })
+const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 
 interface NotebookOptions {
   bg: Background
@@ -27,12 +27,12 @@ interface NotebookOptions {
 }
 
 function newNotebookDialog(last: NotebookOptions): Promise<({ name: string } & NotebookOptions) | null> {
-  return openDialog<{ name: string } & NotebookOptions>('Nouveau bloc-notes', (d) => {
-    const today = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
-    const name = h('input', { type: 'text', value: `Notes du ${today}`, maxLength: 120, autocomplete: 'off' })
+  return openDialog<{ name: string } & NotebookOptions>('New notebook', (d) => {
+    const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })
+    const name = h('input', { type: 'text', value: `Notes ${today}`, maxLength: 120, autocomplete: 'off' })
     let bg = last.bg
     let orient = last.orient
-    const tiles = h('div', { class: 'bg-tiles', role: 'radiogroup', 'aria-label': 'Fond de page' })
+    const tiles = h('div', { class: 'bg-tiles', role: 'radiogroup', 'aria-label': 'Page background' })
     const orients = h('div', { class: 'segmented' })
     const draw = () => {
       tiles.replaceChildren(
@@ -42,7 +42,7 @@ function newNotebookDialog(last: NotebookOptions): Promise<({ name: string } & N
       )
       orients.replaceChildren(
         ...(['portrait', 'landscape'] as const).map((o) =>
-          h('button', { type: 'button', class: o === orient ? 'selected' : '', onClick: () => ((orient = o), draw()) }, o === 'portrait' ? 'Portrait' : 'Paysage'),
+          h('button', { type: 'button', class: o === orient ? 'selected' : '', onClick: () => ((orient = o), draw()) }, o === 'portrait' ? 'Portrait' : 'Landscape'),
         ),
       )
     }
@@ -56,10 +56,10 @@ function newNotebookDialog(last: NotebookOptions): Promise<({ name: string } & N
           if (name.value.trim()) d.close({ name: name.value, bg, orient })
         },
       },
-      h('label', { class: 'field' }, h('span', {}, 'Nom'), name),
-      h('div', { class: 'field' }, h('span', {}, 'Fond de page'), tiles),
-      h('div', { class: 'field' }, h('span', {}, 'Format A4'), orients),
-      dialogButtons(button('Annuler', () => d.close(null)), h('button', { class: 'btn primary', type: 'submit' }, 'Créer')),
+      h('label', { class: 'field' }, h('span', {}, 'Name'), name),
+      h('div', { class: 'field' }, h('span', {}, 'Page background'), tiles),
+      h('div', { class: 'field' }, h('span', {}, 'A4 format'), orients),
+      dialogButtons(button('Cancel', () => d.close(null)), h('button', { class: 'btn primary', type: 'submit' }, 'Create')),
     )
   })
 }
@@ -67,7 +67,7 @@ function newNotebookDialog(last: NotebookOptions): Promise<({ name: string } & N
 function moveDialog(nodes: LibNode[], node: LibNode): Promise<string | null> {
   const excluded = new Set(node.kind === 'folder' ? subtree(nodes, node.id) : [])
   const rows: HTMLElement[] = []
-  return openDialog<string>(`Déplacer « ${node.name} »`, (d) => {
+  return openDialog<string>(`Move "${node.name}"`, (d) => {
     const add = (id: string, name: string, depth: number) => {
       rows.push(
         h(
@@ -75,14 +75,14 @@ function moveDialog(nodes: LibNode[], node: LibNode): Promise<string | null> {
           { type: 'button', class: 'move-row', disabled: id === node.parentId, style: `padding-left:${12 + depth * 20}px`, onClick: () => d.close(id) },
           h('span', { class: 'menu-icon', html: icons.folder }),
           name,
-          id === node.parentId ? h('span', { class: 'muted' }, ' (emplacement actuel)') : null,
+          id === node.parentId ? h('span', { class: 'muted' }, ' (current location)') : null,
         ),
       )
       const kids = nodes.filter((n) => n.kind === 'folder' && n.parentId === id && !n.deleted && !excluded.has(n.id)).sort((a, b) => collator.compare(a.name, b.name))
       for (const k of kids) add(k.id, k.name, depth + 1)
     }
     add(ROOT, 'Plume', 0)
-    return [h('div', { class: 'move-list' }, ...rows), dialogButtons(button('Annuler', () => d.close(null)))]
+    return [h('div', { class: 'move-list' }, ...rows), dialogButtons(button('Cancel', () => d.close(null)))]
   })
 }
 
@@ -102,15 +102,15 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
   const itemMenu = (node: LibNode, anchor: HTMLElement) =>
     openMenu(anchor, [
       {
-        label: 'Renommer',
+        label: 'Rename',
         icon: icons.pen,
         action: async () => {
-          const name = await promptDialog('Renommer', 'Nouveau nom', node.name, 'Renommer')
+          const name = await promptDialog('Rename', 'New name', node.name, 'Rename')
           if (name) await act(() => renameNode(node.id, name))
         },
       },
       {
-        label: 'Déplacer…',
+        label: 'Move…',
         icon: icons.folder,
         action: async () => {
           const dest = await moveDialog(nodes, node)
@@ -118,14 +118,14 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
         },
       },
       {
-        label: 'Supprimer',
+        label: 'Delete',
         icon: icons.trash,
         danger: true,
         action: async () => {
           const count = subtree(nodes, node.id).filter((id) => nodes.find((n) => n.id === id)?.kind === 'notebook').length
-          const what = node.kind === 'folder' ? `Le dossier « ${node.name} » et tout son contenu (${count} bloc${count > 1 ? 's' : ''}-notes)` : `Le bloc-notes « ${node.name} »`
-          const where = deps.synced() && node.remoteId ? ' sur cet appareil et dans OneDrive, où une copie reste récupérable dans la corbeille pendant 30 jours.' : ' définitivement de cet appareil.'
-          if (await confirmDialog('Supprimer', `${what} sera supprimé${where}`, 'Supprimer', true)) await act(() => deleteNode(node.id))
+          const what = node.kind === 'folder' ? `The folder "${node.name}" and everything in it (${count} notebook${count === 1 ? '' : 's'})` : `The notebook "${node.name}"`
+          const where = deps.synced() && node.remoteId ? ' will be deleted from this device and from OneDrive, where a copy stays recoverable in the recycle bin for 30 days.' : ' will be permanently deleted from this device.'
+          if (await confirmDialog('Delete', `${what}${where}`, 'Delete', true)) await act(() => deleteNode(node.id))
         },
       },
     ])
@@ -135,15 +135,15 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     let sub: string
     if (isFolder) {
       const n = nodes.filter((c) => c.parentId === node.id).length
-      sub = n === 0 ? 'Vide' : `${n} élément${n > 1 ? 's' : ''}`
-    } else if (node.foreign) sub = 'PDF externe'
-    else if (node.needsDownload && !node.pageIds?.length) sub = 'À télécharger'
+      sub = n === 0 ? 'Empty' : `${n} item${n > 1 ? 's' : ''}`
+    } else if (node.foreign) sub = 'External PDF'
+    else if (node.needsDownload && !node.pageIds?.length) sub = 'To download'
     else {
       const n = node.pageIds?.length ?? 0
       sub = `${n} page${n > 1 ? 's' : ''}`
     }
     const pending = !isFolder && deps.synced() && isDirtyNotebook(node)
-    const more = iconButton(icons.more, `Actions pour ${node.name}`, (e) => {
+    const more = iconButton(icons.more, `Actions for ${node.name}`, (e) => {
       e.stopPropagation()
       itemMenu(node, more)
     }, 'small')
@@ -151,14 +151,14 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
       'div',
       { class: `card ${isFolder ? 'folder' : 'notebook'}`, role: 'button', tabIndex: 0, onClick: () => deps.open(node), onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && deps.open(node) },
       isFolder ? h('div', { class: 'cover folder-cover', html: icons.folder }) : h('div', { class: `cover paper bg-${node.bg ?? 'blank'} ${node.orient === 'landscape' ? 'landscape' : ''}` }),
-      h('div', { class: 'card-text' }, h('div', { class: 'card-name' }, node.name), h('div', { class: 'card-sub' }, sub, pending ? h('span', { class: 'pending-dot', title: 'Pas encore envoyé vers OneDrive' }) : null)),
+      h('div', { class: 'card-text' }, h('div', { class: 'card-name' }, node.name), h('div', { class: 'card-sub' }, sub, pending ? h('span', { class: 'pending-dot', title: 'Not yet sent to OneDrive' }) : null)),
       more,
     )
   }
 
   const crumbs = h(
     'nav',
-    { class: 'crumbs', 'aria-label': 'Emplacement' },
+    { class: 'crumbs', 'aria-label': 'Location' },
     h('button', { type: 'button', class: folderId === ROOT ? 'current' : '', onClick: () => deps.goTo(ROOT) }, 'Plume'),
     ...pathTo(nodes, folderId).flatMap((f, i, all) => [h('span', { class: 'crumb-sep' }, '›'), h('button', { type: 'button', class: i === all.length - 1 ? 'current' : '', onClick: () => deps.goTo(f.id) }, f.name)]),
   )
@@ -169,7 +169,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     h(
       'div',
       { class: 'library' },
-      h('header', { class: 'lib-head' }, crumbs, h('div', { class: 'spacer' }), deps.syncChip, iconButton(icons.settings, 'Réglages', deps.openSettings)),
+      h('header', { class: 'lib-head' }, crumbs, h('div', { class: 'spacer' }), deps.syncChip, iconButton(icons.settings, 'Settings', deps.openSettings)),
       h(
         'div',
         { class: 'lib-actions' },
@@ -189,7 +189,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
             },
           },
           h('span', { class: 'menu-icon', html: icons.plus }),
-          'Bloc-notes',
+          'Notebook',
         ),
         h(
           'button',
@@ -197,19 +197,19 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
             class: 'btn',
             type: 'button',
             onClick: async () => {
-              const name = await promptDialog('Nouveau dossier', 'Nom du dossier', '', 'Créer')
+              const name = await promptDialog('New folder', 'Folder name', '', 'Create')
               if (name) await act(() => createFolder(folderId, name))
             },
           },
           h('span', { class: 'menu-icon', html: icons.folderPlus }),
-          'Dossier',
+          'Folder',
         ),
       ),
       ...notices.map((n) =>
-        h('div', { class: 'notice', role: 'alert' }, h('span', {}, n.text), iconButton(icons.close, "Fermer l'avis", () => void deps.engine.dismissNotice(n.id), 'small')),
+        h('div', { class: 'notice', role: 'alert' }, h('span', {}, n.text), iconButton(icons.close, 'Dismiss notice', () => void deps.engine.dismissNotice(n.id), 'small')),
       ),
       empty
-        ? h('p', { class: 'empty' }, folderId === ROOT ? 'Aucune note pour le moment. Créez un bloc-notes pour commencer à écrire.' : 'Ce dossier est vide.')
+        ? h('p', { class: 'empty' }, folderId === ROOT ? 'No notes yet. Create a notebook to start writing.' : 'This folder is empty.')
         : h('div', { class: 'grid' }, ...folders.map(card), ...notebooks.map(card)),
     ),
   )
@@ -217,11 +217,11 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
 
 export function notOpenable(node: LibNode): boolean {
   if (node.foreign) {
-    toast("Ce PDF n'a pas été créé avec Plume. L'import de PDF est prévu dans la prochaine version.", 5000)
+    toast('This PDF was not created with Plume. PDF import is planned for the next version.', 5000)
     return true
   }
   if (node.needsDownload && !node.pageIds?.length) {
-    toast('Ce bloc-notes est en cours de téléchargement depuis OneDrive.')
+    toast('This notebook is being downloaded from OneDrive.')
     return true
   }
   return false

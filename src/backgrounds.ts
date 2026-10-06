@@ -1,5 +1,5 @@
-// Fonds de page. La même description sert à l'affichage et à l'export PDF, pour
-// que le PDF soit identique à l'écran.
+// Page backgrounds. The same description is used for display and for PDF
+// export, so that the PDF is identical to the screen.
 
 import { MM, type Background } from './model'
 
@@ -25,7 +25,7 @@ export interface BgSpec {
   dots?: BgDots
 }
 
-/** Positions régulières centrées sur [0, size]. */
+/** Regular positions centred on [0, size]. */
 function ticks(size: number, step: number): number[] {
   const n = Math.floor(size / step)
   const start = (size - n * step) / 2

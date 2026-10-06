@@ -1,192 +1,201 @@
-# Mettre Plume en service
+# Setting up Plume
 
-Ce guide s'adresse à quelqu'un qui ne programme pas. Il y a trois étapes, à faire
-une seule fois, dans cet ordre :
+This guide is for someone who does not program. There are three steps, done
+once, in this order:
 
-1. mettre Plume en ligne (gratuit, avec GitHub) ;
-2. autoriser Plume à accéder à votre OneDrive (gratuit, chez Microsoft) ;
-3. installer Plume sur la tablette.
+1. put Plume online (free, with GitHub);
+2. allow Plume to access your OneDrive (free, with Microsoft);
+3. install Plume on the tablet.
 
-Comptez environ une demi-heure. Tant que l'étape 2 n'est pas faite, Plume
-fonctionne déjà, mais les notes restent uniquement sur l'appareil.
+Allow about half an hour. Until step 2 is done Plume already works, but notes
+stay on the device only.
 
 ---
 
-## Étape 1 — Mettre Plume en ligne
+## Step 1 — Put Plume online
 
-Plume est une application web : elle doit être accessible à une adresse
-`https://…` pour pouvoir être installée sur la tablette. GitHub héberge ce genre
-de site gratuitement.
+Plume is a web application: it must be reachable at an `https://…` address to
+be installed on the tablet. GitHub hosts this kind of site for free.
 
-1. Créez un compte sur <https://github.com> si vous n'en avez pas.
-2. Créez un dépôt : bouton **New repository**, nom `plume`, visibilité
-   **Public**, sans rien cocher d'autre. (L'hébergement gratuit exige un dépôt
-   public. Le code ne contient aucun mot de passe ni aucune de vos notes.)
-3. Envoyez le code de ce dossier vers ce dépôt. Le plus simple est de le demander
-   à Claude (« pousse Plume sur mon dépôt GitHub `moncompte/plume` ») : il vous
-   guidera pour la connexion à GitHub. À la main, depuis ce dossier :
+1. Create an account on <https://github.com> if you do not have one.
+2. Create a repository: **New repository** button, name `plume`, visibility
+   **Public**, nothing else ticked. (Free hosting requires a public
+   repository. The code contains no password and none of your notes.)
+3. In the repository, open **Settings → Pages** and, under **Build and
+   deployment**, set **Source** to **GitHub Actions**.
+4. Create an access token, which GitHub requires instead of your password to
+   send code: <https://github.com/settings/tokens> → **Generate new token
+   (classic)**, tick **repo** and **workflow**, then copy the token (it starts
+   with `ghp_`). Never share this token.
+5. Send the code of this folder to the repository. From this folder, in a
+   terminal:
 
    ```
-   git remote add origin https://github.com/MONCOMPTE/plume.git
+   git remote add origin https://github.com/MYACCOUNT/plume.git
    git push -u origin main
    ```
-4. Dans le dépôt, ouvrez **Settings → Pages** et, sous **Build and deployment**,
-   choisissez **Source : GitHub Actions**.
-5. Ouvrez l'onglet **Actions** : une tâche « Mise en ligne » tourne. Quand elle
-   est verte (2 à 3 minutes), Plume est en ligne à l'adresse :
 
-   **`https://MONCOMPTE.github.io/plume/`**
+   Git asks for a username (your GitHub username) and a password (paste the
+   token).
+6. Open the **Actions** tab: a "Deploy" job is running. When it turns green
+   (2 to 3 minutes), Plume is online at:
 
-   Notez cette adresse exactement, avec la barre oblique finale : elle sert à
-   l'étape 2.
+   **`https://MYACCOUNT.github.io/plume/`**
 
-Par la suite, chaque modification du code envoyée sur GitHub met le site à jour
-toute seule, et la tablette récupère la nouvelle version à l'ouverture suivante.
+   Write this address down exactly, including the trailing slash: it is needed
+   in step 2. If your repository has another name, that name replaces `plume`
+   in the address.
+
+From then on, every code change sent to GitHub updates the site by itself, and
+the tablet picks up the new version the next time it is opened.
 
 ---
 
-## Étape 2 — Autoriser l'accès à OneDrive
+## Step 2 — Allow access to OneDrive
 
-Pour qu'une application puisse lire et écrire dans un OneDrive, Microsoft demande
-qu'elle soit « enregistrée ». L'enregistrement est gratuit et donne un
-**identifiant client** : une suite de lettres et de chiffres, qui n'est pas un
-secret, à coller dans Plume.
+For an application to read and write in a OneDrive, Microsoft requires it to
+be "registered". Registration is free and yields a **client ID**: a string of
+letters and digits, which is not a secret, to paste into Plume.
 
-### 2a. Obtenir l'accès au portail Microsoft
+### 2a. Get access to the Microsoft portal
 
-Depuis quelques années, un compte Microsoft personnel seul ne suffit plus pour
-enregistrer une application : il faut un compte Azure (le service en ligne de
-Microsoft pour les développeurs). Deux possibilités, gratuites toutes les deux :
+A personal Microsoft account alone is no longer enough to register an
+application: it needs an Azure account (Microsoft's online service for
+developers). Without one, the portal shows errors such as "the selected user
+account does not exist in tenant 'Microsoft Services'". Two options:
 
-- **Azure for Students** (le plus simple si vous êtes étudiante) :
-  <https://azure.microsoft.com/free/students>. Inscription avec l'adresse e-mail
-  de votre établissement, **sans carte bancaire**.
-- **Compte Azure gratuit** : <https://azure.microsoft.com/free>. Microsoft y
-  demande habituellement une carte bancaire pour vérifier l'identité ;
-  l'enregistrement d'une application ne coûte rien.
+- **Free Azure account**: <https://azure.microsoft.com/free>, button **Try
+  Azure for free**. Sign in with your personal Microsoft account and fill in
+  the form (phone number, then a bank card used to verify your identity).
+  Registering an application costs nothing.
+- **Azure for Students**: <https://azure.microsoft.com/free/students>. No bank
+  card, but it requires a school e-mail address, and the sign-up does not
+  always work with a personal account.
 
-Le compte Azure et le OneDrive n'ont pas besoin d'être le même compte : Azure sert
-seulement à déclarer l'application ; vos notes iront dans le OneDrive personnel
-avec lequel vous vous connecterez dans Plume.
+The Azure account and the OneDrive do not have to be the same account: Azure
+is only used to declare the application. Your notes go to the OneDrive you
+sign in to inside Plume.
 
-### 2b. Enregistrer l'application
+Avoid private browsing windows for these steps: they block the cookies the
+Microsoft portal needs.
 
-Les libellés ci-dessous sont ceux de l'interface en anglais ; si le portail
-s'affiche en français, ils sont traduits mais placés au même endroit.
+### 2b. Register the application
 
-1. Ouvrez <https://entra.microsoft.com> et connectez-vous avec le compte Azure.
-2. Dans le menu de gauche : **Entra ID → App registrations**, puis
-   **New registration**.
-3. **Name** : `Plume`.
-4. **Supported account types** : choisissez **Personal accounts only**
-   (« comptes personnels uniquement »). C'est important : avec un autre choix, la
-   connexion depuis Plume sera refusée.
-5. Cliquez sur **Register**.
-6. Sur la page qui s'affiche, copiez la valeur **Application (client) ID**
-   (de la forme `12345678-abcd-…`).
-7. Dans le menu de l'application : **Manage → Authentication**, puis
+The labels below are those of the English interface; if the portal is shown
+in another language they are translated but located in the same place.
+
+1. Open <https://portal.azure.com> and sign in with the Azure account.
+2. In the search bar at the top, type **App registrations** and open the
+   result, then click **New registration**.
+3. **Name**: `Plume`.
+4. **Supported account types**: choose **Personal accounts only**. This
+   matters: with another choice, signing in from Plume is refused.
+5. Click **Register**.
+6. On the page that appears, copy the **Application (client) ID** value
+   (of the form `12345678-abcd-…`).
+7. In the application's menu: **Manage → Authentication**, then
    **Add Redirect URI**.
-8. Choisissez la tuile **Single-page application**, puis saisissez l'adresse de
-   Plume obtenue à l'étape 1, exactement, barre oblique finale comprise :
-   `https://MONCOMPTE.github.io/plume/`
-9. Cliquez sur **Configure**.
+8. Choose the **Single-page application** tile, then enter Plume's address
+   from step 1, exactly, including the trailing slash:
+   `https://MYACCOUNT.github.io/plume/`
+9. Click **Configure**.
 
-Il n'y a rien d'autre à régler : pas de secret, pas de permission à ajouter.
+Nothing else needs to be set: no secret, no permission to add.
 
-### 2c. Donner l'identifiant à Plume
+### 2c. Give the ID to Plume
 
-Ouvrez le fichier `src/config.ts` et collez l'identifiant entre les apostrophes
-de la ligne :
+Open the file `src/config.ts` and paste the ID between the quotes on the line:
 
 ```ts
 const CLIENT_ID = ''
 ```
 
-ce qui donne par exemple `const CLIENT_ID = '12345678-abcd-…'`. Envoyez ensuite la
-modification sur GitHub (ou demandez à Claude de le faire : « mets cet identifiant
-client dans Plume et publie »). Deux à trois minutes plus tard, le site est à
-jour.
+which gives for example `const CLIENT_ID = '12345678-abcd-…'`. Then send the
+change to GitHub (`git push`). Two to three minutes later the site is up to
+date.
 
-### 2d. Se connecter
+### 2d. Sign in
 
-Ouvrez Plume, touchez l'indicateur **Connexion requise** en haut à droite, puis
-**Se connecter à OneDrive**. Microsoft affiche une page de connexion, puis demande
-votre accord pour que Plume ait « un accès complet à vos fichiers » : c'est la
-permission la plus étroite que Microsoft propose pour pouvoir créer le dossier
-`Plume` à la racine de OneDrive. Plume ne touche qu'à ce dossier.
+Open Plume, tap the **Sign-in required** indicator at the top right, then
+**Sign in to OneDrive**. Microsoft shows a sign-in page, then asks you to
+agree that Plume has "full access to your files": this is the narrowest
+permission Microsoft offers that allows creating the `Plume` folder at the
+root of OneDrive. Plume only touches that folder.
 
-L'indicateur passe à **À jour** et un dossier `Plume` apparaît dans votre
+The indicator switches to **Up to date** and a `Plume` folder appears in your
 OneDrive.
 
-À savoir : pour une application web, Microsoft limite la durée d'une session à
-24 heures. Plume se reconnecte toute seule à l'ouverture quand c'est possible ;
-sinon l'indicateur affiche « Connexion requise » et un appui suffit. Dans tous les
-cas, ce que vous écrivez est enregistré sur la tablette et part vers OneDrive dès
-la reconnexion.
+Good to know: for a web application, Microsoft limits a session to 24 hours.
+Plume signs in again by itself on opening when possible; otherwise the
+indicator shows "Sign-in required" and one tap is enough. In all cases, what
+you write is saved on the tablet and goes to OneDrive as soon as you are
+signed in again.
 
-### En cas d'erreur à la connexion
+### If signing in fails
 
-- **« redirect URI … does not match »** (code AADSTS50011) : l'adresse saisie au
-  point 8 n'est pas exactement celle de Plume. Vérifiez le `https`, le nom du
-  compte, `/plume/` et la barre oblique finale.
-- **« unauthorized_client »** ou **« not enabled for consumers »** : le type de
-  comptes choisi au point 4 n'est pas « Personal accounts only ». Le plus simple
-  est de supprimer l'enregistrement et de le refaire.
-
----
-
-## Étape 3 — Installer Plume sur la tablette
-
-1. Sur la tablette, ouvrez l'adresse de Plume dans **Chrome**.
-2. Menu **⋮** de Chrome → **Ajouter à l'écran d'accueil** → **Installer**.
-3. Lancez Plume depuis son icône : elle s'ouvre en plein écran, comme une
-   application, et fonctionne aussi sans réseau.
-4. Connectez-vous à OneDrive (étape 2d) si ce n'est pas déjà fait.
-
-Sur l'ordinateur, il suffit d'ouvrir la même adresse dans un navigateur et de se
-connecter : les blocs-notes apparaissent et restent modifiables. Et dans tous les
-cas, chaque bloc-notes est un PDF ordinaire dans le dossier `Plume` de OneDrive.
+- **"redirect URI … does not match"** (code AADSTS50011): the address entered
+  at point 8 is not exactly Plume's. Check the `https`, the account name, the
+  repository name and the trailing slash.
+- **"unauthorized_client"** or **"not enabled for consumers"**: the account
+  type chosen at point 4 is not "Personal accounts only". The simplest fix is
+  to delete the registration and do it again.
 
 ---
 
-## Contrôles à faire sur la tablette
+## Step 3 — Install Plume on the tablet
 
-Ces points n'ont pas pu être vérifiés sans la tablette. Dix minutes suffisent.
+1. On the tablet, open Plume's address in **Chrome**.
+2. Chrome's **⋮** menu → **Add to Home screen** → **Install**.
+3. Start Plume from its icon: it opens full screen, like an application, and
+   also works without a network.
+4. Sign in to OneDrive (step 2d) if not done yet.
 
-| À vérifier | Comment | Résultat attendu |
+On a computer, just open the same address in a browser and sign in: the
+notebooks appear and stay editable. And in any case, each notebook is an
+ordinary PDF in the `Plume` folder of OneDrive.
+
+After an update, close Plume completely and open it twice: the first opening
+downloads the new version, the second one uses it.
+
+---
+
+## Checks to do on the tablet
+
+These points could not be verified without the tablet. Ten minutes is enough.
+
+| What to check | How | Expected result |
 | --- | --- | --- |
-| Rejet de la paume | Écrire plusieurs lignes, la main posée sur l'écran | Aucun trait parasite, la page ne bouge pas |
-| Pression | Écrire en appuyant plus ou moins fort | Le trait s'épaissit avec la pression |
-| Fluidité de l'écriture | Écrire vite, puis sur une page déjà bien remplie | Le trait suit la pointe sans retard gênant |
-| Défilement et zoom | Faire défiler à un doigt, pincer pour zoomer | Mouvement fluide, image nette à l'arrêt |
-| Bouton du stylet | Maintenir le bouton latéral en traçant | Le stylet gomme tant que le bouton est enfoncé |
-| Hors ligne | Mode avion, écrire, fermer puis rouvrir Plume | Tout est là ; l'indicateur affiche « Hors ligne » |
-| Retour du réseau | Désactiver le mode avion | L'indicateur passe à « À jour » en moins d'une minute |
-| PDF dans OneDrive | Ouvrir OneDrive sur l'ordinateur | Le PDF du bloc-notes est dans `Plume/…`, à jour |
-| Dossiers | Créer, renommer, déplacer un dossier dans Plume | Le même changement apparaît dans OneDrive |
+| Palm rejection | Write several lines with your hand resting on the screen | No stray strokes, the page does not move |
+| Pressure | Write pressing more or less hard | The stroke gets thicker with pressure |
+| Writing smoothness | Write fast, then on an already full page | The stroke follows the tip without annoying lag, letters are round |
+| Scroll and zoom | Scroll with one finger, pinch to zoom | Smooth movement, sharp image when it stops |
+| Stylus button | Hold the side button while drawing | The stylus erases while the button is held |
+| Offline | Airplane mode, write, close then reopen Plume | Everything is there; the indicator shows "Offline" |
+| Network back | Turn airplane mode off | The indicator switches to "Up to date" within a minute |
+| PDF in OneDrive | Open OneDrive on the computer | The notebook's PDF is in `Plume/…`, up to date |
+| Folders | Create, rename, move a folder in Plume | The same change appears in OneDrive |
 
-Si l'un de ces points ne donne pas le résultat attendu, notez lequel et dans
-quelles conditions : c'est ce qu'il faudra ajuster.
+If one of these does not give the expected result, note which one and under
+what conditions: that is what will need adjusting.
 
 ---
 
-## Bon à savoir
+## Good to know
 
-- **Chaque trait est enregistré sur l'appareil au moment où il est tracé.** La
-  synchronisation OneDrive vient en plus : à la fermeture d'un bloc-notes, quand
-  vous quittez l'application, et toutes les 5 minutes pendant l'écriture (durée
-  réglable dans les réglages, icône en haut à droite de la bibliothèque).
-- **Quand vous quittez l'application**, l'envoi démarre mais Android peut
-  l'interrompre s'il est long. Il reprend alors à l'ouverture suivante. Pour être
-  certaine que le PDF est parti, attendez « À jour » avant de quitter.
-- **Ne supprimez pas les données de navigation de Chrome** pour le site de Plume
-  tant que l'indicateur n'est pas « À jour » : c'est là que sont rangées les
-  notes pas encore envoyées.
-- **Un PDF modifié avec un autre logiciel** (annotations ajoutées dans un lecteur
-  PDF, par exemple) : Plume rouvrira ses propres traits, pas ces ajouts.
-- **Un seul appareil à la fois.** Si un même bloc-notes est modifié à deux
-  endroits avant d'avoir été synchronisé, Plume ne choisit pas à votre place : il
-  garde les deux versions (l'une est renommée « … (conflit date heure) ») et
-  affiche un avis dans la bibliothèque.
-- **Suppression** : un élément supprimé dans Plume part dans la corbeille de
-  OneDrive, où il reste récupérable pendant 30 jours.
+- **Every stroke is saved on the device the moment it is drawn.** OneDrive
+  sync comes on top: when a notebook is closed, when you leave the
+  application, and every 5 minutes while writing (adjustable in the settings,
+  icon at the top right of the library).
+- **When you leave the application**, the upload starts but Android may
+  interrupt it if it is long. It then resumes the next time Plume is opened.
+  To be sure the PDF has gone, wait for "Up to date" before leaving.
+- **Do not clear Chrome's browsing data** for Plume's site while the
+  indicator is not "Up to date": that is where notes not yet sent are kept.
+- **A PDF modified with another program** (annotations added in a PDF reader,
+  for example): Plume will reopen its own strokes, not those additions.
+- **One device at a time.** If the same notebook is modified in two places
+  before being synced, Plume does not choose for you: it keeps both versions
+  (one is renamed "… (conflict date time)") and shows a notice in the
+  library.
+- **Deletion**: an item deleted in Plume goes to the OneDrive recycle bin,
+  where it stays recoverable for 30 days.

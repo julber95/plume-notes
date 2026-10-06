@@ -34,7 +34,7 @@ function login(): void {
   void auth.login()
 }
 
-// ---------- Navigation (l'adresse reflète l'écran affiché) ----------
+// ---------- Navigation (the address reflects the screen shown) ----------
 
 function parseRoute(): { view: 'folder' | 'notebook'; id: string } {
   const m = /^#\/(f|n)\/([\w-]+)$/.exec(location.hash)
@@ -99,10 +99,10 @@ async function show(): Promise<void> {
   })
 }
 
-// ---------- Déclencheurs de synchronisation ----------
+// ---------- Sync triggers ----------
 
 let refreshTimer = 0
-/** Met à jour l'indicateur « en attente » peu après une modification. */
+/** Updates the "pending" indicator shortly after a change. */
 function scheduleRefresh(): void {
   if (refreshTimer) return
   refreshTimer = window.setTimeout(() => {
@@ -112,14 +112,14 @@ function scheduleRefresh(): void {
 }
 
 let soonTimer = 0
-/** Synchronise peu après un changement dans la bibliothèque. */
+/** Syncs shortly after a change in the library. */
 function syncSoon(): void {
   clearTimeout(soonTimer)
   soonTimer = window.setTimeout(() => void engine.sync(), 1500)
 }
 
 let autoTimer = 0
-/** Export automatique toutes les X minutes. */
+/** Automatic export every X minutes. */
 async function armAutoExport(): Promise<void> {
   clearInterval(autoTimer)
   const minutes = await exportMinutes()
@@ -132,7 +132,7 @@ engine.subscribe((e) => {
   if ((e.type === 'library' || e.type === 'notices') && libraryFolder !== null && !document.querySelector('dialog[open]')) void route()
   if (e.type === 'replaced' && editor?.notebookId === e.notebookId) {
     void editor.reload()
-    toast('Ce bloc-notes a été mis à jour depuis OneDrive.')
+    toast('This notebook was updated from OneDrive.')
   }
 })
 
@@ -140,8 +140,8 @@ window.addEventListener('hashchange', () => void route())
 window.addEventListener('online', () => void engine.sync())
 window.addEventListener('offline', () => void engine.refresh())
 document.addEventListener('visibilitychange', () => {
-  // En quittant l'application : on envoie ce qui est en attente. Au retour : on
-  // vérifie s'il y a du nouveau sur OneDrive.
+  // When leaving the application: send what is pending. When coming back:
+  // check whether there is anything new on OneDrive.
   if (document.visibilityState === 'hidden') void editor?.flush().then(() => engine.sync())
   else void engine.sync()
 })
@@ -149,7 +149,7 @@ window.addEventListener('pagehide', () => void engine.sync())
 
 async function start(): Promise<void> {
   registerSW({ immediate: true })
-  // Demande au navigateur de ne jamais effacer les notes pour libérer de la place.
+  // Asks the browser never to evict the notes to free up space.
   void navigator.storage?.persist?.().catch(() => {})
 
   const redirect = await auth.handleRedirect(new URLSearchParams(location.search))
@@ -158,7 +158,7 @@ async function start(): Promise<void> {
     sessionStorage.removeItem(RETURN_KEY)
     if (redirect.error) toast(redirect.error, 8000)
   } else if (auth.canTrySilentLogin() && navigator.onLine && parseRoute().view === 'folder') {
-    // Session Microsoft expirée : reconnexion sans intervention si possible.
+    // Microsoft session expired: sign in again without interaction if possible.
     sessionStorage.setItem(RETURN_KEY, location.hash)
     await auth.silentLogin()
     return

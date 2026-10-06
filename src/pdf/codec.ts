@@ -1,9 +1,9 @@
-// Format des données modifiables embarquées dans chaque page du PDF.
+// Format of the editable data embedded in each page of the PDF.
 //
-// Un bloc par page : [longueur de l'en-tête sur 4 octets][en-tête JSON][points].
-// L'en-tête décrit la page et ses traits ; les points sont des entiers
-// (centièmes de point, pression sur 255) codés en différences puis en varints,
-// ce qui se compresse très bien.
+// One block per page: [header length on 4 bytes][JSON header][points].
+// The header describes the page and its strokes; the points are integers
+// (hundredths of a point, pressure out of 255) delta-encoded then stored as
+// varints, which compresses very well.
 
 import { uid, type Background, type Orientation, type Page, type Stroke, type StrokeTool } from '../model'
 import type { NotebookContent } from '../db'
@@ -42,7 +42,7 @@ class Writer {
       next.set(this.buf)
       this.buf = next
     }
-    // zigzag : les petits nombres, positifs ou négatifs, tiennent sur un octet
+    // zigzag: small numbers, positive or negative, fit in one byte
     let u = v < 0 ? -2 * v - 1 : 2 * v
     while (u >= 128) {
       this.buf[this.len++] = (u % 128) | 128
@@ -69,7 +69,7 @@ export function encodePage(page: Pick<Page, 'bg' | 'orient'>, strokes: Pick<Stro
       const x = Math.round(s.pts[i] * 100)
       const y = Math.round(s.pts[i + 1] * 100)
       const p = Math.round(s.pts[i + 2] * 255)
-      // x et y : différence seconde (une courbe régulière donne de petits nombres)
+      // x and y: second difference (a smooth curve gives small numbers)
       w.varint(x - px - dx)
       w.varint(y - py - dy)
       w.varint(p - pp)
@@ -97,7 +97,7 @@ export function decodePage(bytes: Uint8Array): PageData | null {
       let u = 0
       let mul = 1
       for (;;) {
-        if (pos >= bytes.length) throw new Error('données tronquées')
+        if (pos >= bytes.length) throw new Error('truncated data')
         const b = bytes[pos++]
         u += (b & 127) * mul
         if (b < 128) break
@@ -141,7 +141,7 @@ export interface NotebookData {
   pages: PageData[]
 }
 
-/** Transforme les données lues en pages et traits locaux (identifiants neufs). */
+/** Turns the data read into local pages and strokes (fresh ids). */
 export function dataToContent(notebookId: string, data: NotebookData): NotebookContent {
   const pages: Page[] = []
   const strokes: Stroke[] = []

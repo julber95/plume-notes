@@ -1,5 +1,5 @@
-// Tests de bout en bout : l'application construite, pilotée dans un vrai
-// navigateur (Chromium), face à un faux OneDrive. Lancer avec `npm run test:e2e`.
+// End-to-end tests: the built application, driven in a real browser
+// (Chromium), against a fake OneDrive. Run with `npm run test:e2e`.
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({

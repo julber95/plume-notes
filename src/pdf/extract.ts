@@ -1,4 +1,4 @@
-// Relecture des données modifiables embarquées dans un PDF produit par Plume.
+// Reads back the editable data embedded in a PDF produced by Plume.
 
 import { PDFDict, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from 'pdf-lib'
 import type { Background, Orientation } from '../model'
@@ -12,7 +12,7 @@ function plumePrivate(dict: PDFDict): unknown {
   return dict.lookupMaybe(PieceInfo, PDFDict)?.lookupMaybe(Plume, PDFDict)?.lookup(Private)
 }
 
-/** Retourne null si le PDF ne contient pas de données Plume lisibles. */
+/** Returns null if the PDF contains no readable Plume data. */
 export async function extractPlumeData(bytes: Uint8Array): Promise<NotebookData | null> {
   try {
     const doc = await PDFDocument.load(bytes, { updateMetadata: false, ignoreEncryption: true })
@@ -27,7 +27,7 @@ export async function extractPlumeData(bytes: Uint8Array): Promise<NotebookData 
       if (decoded) {
         data.pages.push(decoded)
       } else {
-        // Page sans données (ajoutée par un autre logiciel) : page vierge au même format.
+        // Page without data (added by another program): blank page of the same format.
         const { width, height } = page.getSize()
         data.pages.push({ bg: 'blank', orient: width > height ? 'landscape' : 'portrait', strokes: [] })
       }

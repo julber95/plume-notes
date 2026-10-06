@@ -1,4 +1,4 @@
-// Client minimal de l'API Microsoft Graph pour OneDrive.
+// Minimal Microsoft Graph API client for OneDrive.
 
 import { GRAPH_BASE } from '../config'
 
@@ -23,20 +23,20 @@ export class GraphError extends Error {
   ) {
     super(message)
   }
-  /** Pas de réseau, ou serveur momentanément indisponible. */
+  /** No network, or server temporarily unavailable. */
   get transient(): boolean {
     return this.status === 0 || this.status === 429 || this.status >= 500
   }
 }
 
-/** Levée quand l'utilisateur doit se reconnecter à son compte Microsoft. */
+/** Thrown when the user must sign in to their Microsoft account again. */
 export class AuthRequiredError extends Error {}
 
 export interface RemoteChanges {
   items: DriveItem[]
-  /** Lien à réutiliser pour ne demander que les changements suivants. */
+  /** Link to reuse in order to ask only for subsequent changes. */
   link?: string
-  /** true : `items` est la liste complète du dossier, pas seulement les changements. */
+  /** true: `items` is the complete folder listing, not just the changes. */
   full: boolean
 }
 
@@ -58,7 +58,7 @@ export class GraphClient {
       try {
         res = await this.fetchFn(full, { method, headers, body: init.body })
       } catch (e) {
-        throw new GraphError(0, 'network', e instanceof Error ? e.message : 'Réseau indisponible')
+        throw new GraphError(0, 'network', e instanceof Error ? e.message : 'Network unavailable')
       }
       if (res.ok) return res
       if ((res.status === 429 || res.status === 503) && attempt < 3) {
@@ -73,7 +73,7 @@ export class GraphClient {
         code = body.error?.code ?? code
         message = body.error?.message ?? message
       } catch {
-        // corps non JSON
+        // non-JSON body
       }
       if (res.status === 401) throw new AuthRequiredError(message)
       throw new GraphError(res.status, code, message)
@@ -88,13 +88,13 @@ export class GraphClient {
     return (res.status === 204 ? undefined : await res.json()) as T
   }
 
-  /** Nom du titulaire du OneDrive (pour l'afficher dans les réglages). */
+  /** Name of the OneDrive owner (shown in the settings). */
   async owner(): Promise<string> {
     const d = await this.json<{ owner?: { user?: { displayName?: string } } }>('GET', '/me/drive?$select=owner')
     return d.owner?.user?.displayName ?? ''
   }
 
-  /** Trouve ou crée le dossier racine de l'application dans OneDrive. */
+  /** Finds or creates the application's root folder in OneDrive. */
   async ensureRoot(name: string): Promise<DriveItem> {
     try {
       const item = await this.json<DriveItem>('GET', `/me/drive/root:/${encodeURIComponent(name)}?${SELECT}`)
@@ -105,7 +105,7 @@ export class GraphClient {
     return this.json<DriveItem>('POST', '/me/drive/root/children', { name, folder: {}, '@microsoft.graph.conflictBehavior': 'rename' })
   }
 
-  /** Changements du dossier depuis `link` (ou contenu complet sans `link`). */
+  /** Changes in the folder since `link` (or full content without `link`). */
   async changes(rootId: string, link?: string): Promise<RemoteChanges> {
     const items: DriveItem[] = []
     let full = !link
@@ -121,10 +121,10 @@ export class GraphClient {
       if (!(e instanceof GraphError) || e.transient) throw e
       if (e.status === 404 && !link) throw e
       if (link) {
-        // Lien périmé (410) ou refusé : on repart d'une énumération complète.
+        // Stale (410) or refused link: start again from a full enumeration.
         return this.changes(rootId)
       }
-      // Suivi des changements indisponible sur ce dossier : parcours classique.
+      // Change tracking unavailable on this folder: plain traversal.
       full = true
       return { items: await this.listTree(rootId), full }
     }
@@ -159,12 +159,12 @@ export class GraphClient {
     return this.json<DriveItem>('POST', `/me/drive/items/${parentId}/children`, { name, folder: {}, '@microsoft.graph.conflictBehavior': 'fail' })
   }
 
-  /** Renomme et/ou déplace un élément. */
+  /** Renames and/or moves an item. */
   patch(id: string, name: string, parentId: string): Promise<DriveItem> {
     return this.json<DriveItem>('PATCH', `/me/drive/items/${id}`, { name, parentReference: { id: parentId } })
   }
 
-  /** Supprime un élément (il part dans la corbeille OneDrive). */
+  /** Deletes an item (it goes to the OneDrive recycle bin). */
   async remove(id: string): Promise<void> {
     try {
       await this.request('DELETE', `/me/drive/items/${id}`)
@@ -173,14 +173,14 @@ export class GraphClient {
     }
   }
 
-  /** Envoie un nouveau fichier ; échoue (409) si le nom est déjà pris. */
+  /** Uploads a new file; fails (409) if the name is already taken. */
   async uploadNew(parentId: string, filename: string, bytes: Uint8Array): Promise<DriveItem> {
     const url = `/me/drive/items/${parentId}:/${encodeURIComponent(filename)}:/content?@microsoft.graph.conflictBehavior=fail`
     const res = await this.request('PUT', url, { headers: { 'Content-Type': 'application/pdf' }, body: bytes as BodyInit })
     return (await res.json()) as DriveItem
   }
 
-  /** Remplace le contenu d'un fichier ; échoue (412) s'il a changé depuis `eTag`. */
+  /** Replaces the content of a file; fails (412) if it changed since `eTag`. */
   async uploadReplace(id: string, bytes: Uint8Array, eTag?: string): Promise<DriveItem> {
     const headers: Record<string, string> = { 'Content-Type': 'application/pdf' }
     if (eTag) headers['If-Match'] = eTag

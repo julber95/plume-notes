@@ -1,5 +1,5 @@
-// Types et constantes partagés. Toutes les coordonnées sont exprimées en points
-// PDF (1/72 de pouce), origine en haut à gauche de la page.
+// Shared types and constants. All coordinates are in PDF points (1/72 inch),
+// with the origin at the top-left corner of the page.
 
 export const A4 = { w: 595.28, h: 841.89 }
 export const MM = 72 / 25.4
@@ -9,10 +9,10 @@ export type Orientation = 'portrait' | 'landscape'
 export type StrokeTool = 'pen' | 'highlighter' | 'line'
 
 export const BACKGROUNDS: { id: Background; label: string }[] = [
-  { id: 'blank', label: 'Blanc' },
-  { id: 'lined', label: 'Ligné' },
-  { id: 'grid', label: 'Quadrillé' },
-  { id: 'dots', label: 'Pointillé' },
+  { id: 'blank', label: 'Blank' },
+  { id: 'lined', label: 'Lined' },
+  { id: 'grid', label: 'Grid' },
+  { id: 'dots', label: 'Dotted' },
   { id: 'seyes', label: 'Seyès' },
 ]
 
@@ -23,7 +23,7 @@ export interface Stroke {
   tool: StrokeTool
   color: string
   width: number
-  /** Triplets x, y, pression (0..1). */
+  /** Triplets x, y, pressure (0..1). */
   pts: Float32Array
 }
 
@@ -32,7 +32,7 @@ export interface Page {
   notebookId: string
   bg: Background
   orient: Orientation
-  /** Incrémenté à chaque modification de la page. */
+  /** Incremented on every change to the page. */
   rev: number
 }
 
@@ -42,33 +42,33 @@ export interface LibNode {
   id: string
   kind: 'folder' | 'notebook'
   name: string
-  /** Identifiant local du dossier parent, ou ROOT. */
+  /** Local id of the parent folder, or ROOT. */
   parentId: string
   createdAt: number
   updatedAt: number
 
-  // État de synchronisation OneDrive
+  // OneDrive sync state
   remoteId?: string
   eTag?: string
   cTag?: string
   sha1?: string
   sha256?: string
-  /** Nom ou emplacement modifié localement, à reporter sur OneDrive. */
+  /** Name or location changed locally, to be applied on OneDrive. */
   metaDirty?: boolean
-  /** Supprimé localement, suppression OneDrive en attente. */
+  /** Deleted locally, OneDrive deletion pending. */
   deleted?: boolean
 
-  // Blocs-notes uniquement
+  // Notebooks only
   pageIds?: string[]
   bg?: Background
   orient?: Orientation
-  /** Incrémenté à chaque modification du contenu. */
+  /** Incremented on every content change. */
   rev?: number
-  /** Valeur de rev au dernier envoi réussi (-1 : jamais envoyé). */
+  /** Value of rev at the last successful upload (-1: never uploaded). */
   uploadedRev?: number
-  /** La version OneDrive est plus récente que la copie locale. */
+  /** The OneDrive version is newer than the local copy. */
   needsDownload?: boolean
-  /** PDF présent dans le dossier mais non créé par Plume. */
+  /** PDF present in the folder but not created by Plume. */
   foreign?: boolean
 }
 
@@ -93,16 +93,16 @@ export function hasPendingSync(n: LibNode): boolean {
 const FORBIDDEN = /["*:<>?/\\|\u0000-\u001f]/g
 const RESERVED = /^(con|prn|aux|nul|com[0-9]|lpt[0-9]|\.lock|desktop\.ini)$/i
 
-/** Rend un nom acceptable pour OneDrive. */
+/** Makes a name acceptable to OneDrive. */
 export function sanitizeName(raw: string): string {
   let s = raw.replace(FORBIDDEN, '-').replace(/\s+/g, ' ').trim()
   s = s.replace(/[. ]+$/, '').replace(/^[ ~]+/, '')
   if (s.length > 120) s = s.slice(0, 120).trim()
-  if (!s || RESERVED.test(s)) s = s ? `${s}_` : 'Sans titre'
+  if (!s || RESERVED.test(s)) s = s ? `${s}_` : 'Untitled'
   return s
 }
 
-/** Retourne `name`, suffixé « (2) », « (3) »… s'il est déjà pris. */
+/** Returns `name`, suffixed with "(2)", "(3)"… if it is already taken. */
 export function uniqueName(name: string, taken: Iterable<string>): string {
   const used = new Set<string>()
   for (const t of taken) used.add(t.toLowerCase())

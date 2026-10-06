@@ -15,7 +15,7 @@ function notebook(): PdfNotebookInput {
     { ...letter('p1', 0, 0, 3, rand), pts: Float32Array.from([400, 400, 0.6]) },
   ]
   return {
-    name: 'Analyse — chapitre 1',
+    name: 'Calculus — chapter 1',
     bg: 'grid',
     orient: 'portrait',
     pages: [
@@ -28,8 +28,8 @@ function notebook(): PdfNotebookInput {
   }
 }
 
-describe('codage des points', () => {
-  it('restitue les points au centième de point près', () => {
+describe('point encoding', () => {
+  it('restores points to within a hundredth of a point', () => {
     const pts = Float32Array.from([12.345, 678.9, 0.5, 12.5, 679.25, 0.75, 0, 0, 0, 595.28, 841.89, 1])
     const page = decodePage(encodePage({ bg: 'dots', orient: 'landscape' }, [{ tool: 'pen', color: '#102030', width: 1.3, pts }, { tool: 'highlighter', color: '#ffee00', width: 12, pts }]))!
     expect([page.bg, page.orient, page.strokes.length, page.strokes[1].tool, page.strokes[1].color]).toEqual(['dots', 'landscape', 2, 'highlighter', '#ffee00'])
@@ -39,13 +39,13 @@ describe('codage des points', () => {
   })
 })
 
-describe('export PDF', () => {
-  it('produit un PDF valide, au bon format, relisible par un lecteur standard', async () => {
+describe('PDF export', () => {
+  it('produces a valid PDF, in the right format, readable by a standard reader', async () => {
     const bytes = await buildNotebookPdf(notebook())
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe('%PDF-')
     const doc = await PDFDocument.load(bytes)
     expect(doc.getPageCount()).toBe(5)
-    expect(doc.getTitle()).toBe('Analyse — chapitre 1')
+    expect(doc.getTitle()).toBe('Calculus — chapter 1')
     const s1 = doc.getPage(0).getSize()
     expect(s1.width).toBeCloseTo(A4.w, 1)
     expect(s1.height).toBeCloseTo(A4.h, 1)
@@ -53,7 +53,7 @@ describe('export PDF', () => {
     expect(s2.width).toBeCloseTo(A4.h, 1)
   })
 
-  it('aller-retour : chaque trait reste modifiable après export puis relecture', async () => {
+  it('round trip: every stroke stays editable after export then re-reading', async () => {
     const nb = notebook()
     const data = await extractPlumeData(await buildNotebookPdf(nb))
     expect(data).not.toBeNull()
@@ -72,7 +72,7 @@ describe('export PDF', () => {
     })
   })
 
-  it('un second export après relecture donne le même contenu', async () => {
+  it('a second export after re-reading gives the same content', async () => {
     const first = await extractPlumeData(await buildNotebookPdf(notebook()))
     const c = dataToContent('nb', first!)
     const again = await buildNotebookPdf({
@@ -85,14 +85,14 @@ describe('export PDF', () => {
     expect(second).toEqual(first)
   })
 
-  it('un PDF ordinaire est reconnu comme étranger à Plume', async () => {
+  it('an ordinary PDF is recognised as not coming from Plume', async () => {
     const doc = await PDFDocument.create()
     doc.addPage()
     expect(await extractPlumeData(await doc.save())).toBeNull()
     expect(await extractPlumeData(new Uint8Array([1, 2, 3]))).toBeNull()
   })
 
-  it('ne recalcule que les pages modifiées', async () => {
+  it('only recomputes modified pages', async () => {
     const nb = notebook()
     const cache: PageCache = new Map()
     await buildNotebookPdf(nb, cache)
@@ -104,7 +104,7 @@ describe('export PDF', () => {
     expect(data!.pages[0].strokes.length).toBe(1)
   })
 
-  it('reste d’une taille raisonnable pour 50 pages d’écriture dense', async () => {
+  it('stays a reasonable size for 50 pages of dense writing', async () => {
     const pages = Array.from({ length: 50 }, (_, i) => ({
       id: `p${i}`,
       bg: 'seyes' as const,
@@ -114,16 +114,16 @@ describe('export PDF', () => {
     }))
     const t0 = performance.now()
     const cache: PageCache = new Map()
-    const bytes = await buildNotebookPdf({ name: 'Gros cours', bg: 'seyes', orient: 'portrait', pages }, cache)
+    const bytes = await buildNotebookPdf({ name: 'Big course', bg: 'seyes', orient: 'portrait', pages }, cache)
     const t1 = performance.now()
     pages[49].rev++
-    await buildNotebookPdf({ name: 'Gros cours', bg: 'seyes', orient: 'portrait', pages }, cache)
+    await buildNotebookPdf({ name: 'Big course', bg: 'seyes', orient: 'portrait', pages }, cache)
     const t2 = performance.now()
     const data = await extractPlumeData(bytes)
     const t3 = performance.now()
     console.log(
-      `50 pages, ${pages.length * pages[0].strokes.length} traits : ${(bytes.length / 1e6).toFixed(1)} Mo, ` +
-        `export complet ${Math.round(t1 - t0)} ms, export après 1 page modifiée ${Math.round(t2 - t1)} ms, relecture ${Math.round(t3 - t2)} ms`,
+      `50 pages, ${pages.length * pages[0].strokes.length} strokes: ${(bytes.length / 1e6).toFixed(1)} MB, ` +
+        `full export ${Math.round(t1 - t0)} ms, export after 1 modified page ${Math.round(t2 - t1)} ms, re-reading ${Math.round(t3 - t2)} ms`,
     )
     expect(data!.pages.length).toBe(50)
     expect(bytes.length).toBeLessThan(40e6)

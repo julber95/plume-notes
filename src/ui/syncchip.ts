@@ -1,24 +1,24 @@
-// Indicateur d'état de la synchronisation OneDrive.
+// OneDrive sync status indicator.
 
 import type { SyncEngine, SyncState } from '../sync/engine'
 import { button, h, icons, showPopover } from './dom'
 
 const STATES: Record<SyncState, { label: string; icon: string; detail: string }> = {
-  disabled: { label: 'Local seulement', icon: icons.cloudOff, detail: "OneDrive n'est pas encore configuré : vos notes sont enregistrées sur cet appareil uniquement." },
-  signedOut: { label: 'Connexion requise', icon: icons.cloudAlert, detail: 'Connectez-vous à OneDrive pour synchroniser. Vos notes restent enregistrées sur cet appareil en attendant.' },
-  offline: { label: 'Hors ligne', icon: icons.cloudOff, detail: 'Pas de réseau. Vos notes sont enregistrées sur cet appareil et partiront vers OneDrive au retour de la connexion.' },
-  syncing: { label: 'Synchronisation…', icon: icons.cloudUp, detail: 'Envoi vers OneDrive en cours.' },
-  pending: { label: 'En attente', icon: icons.cloudUp, detail: 'Des modifications enregistrées sur cet appareil attendent leur envoi vers OneDrive.' },
-  ok: { label: 'À jour', icon: icons.cloudOk, detail: 'Tout est enregistré dans OneDrive.' },
-  error: { label: 'Erreur', icon: icons.cloudAlert, detail: "La dernière synchronisation a échoué. Vos notes restent enregistrées sur cet appareil." },
+  disabled: { label: 'Local only', icon: icons.cloudOff, detail: 'OneDrive is not set up yet: your notes are saved on this device only.' },
+  signedOut: { label: 'Sign-in required', icon: icons.cloudAlert, detail: 'Sign in to OneDrive to sync. Your notes stay saved on this device in the meantime.' },
+  offline: { label: 'Offline', icon: icons.cloudOff, detail: 'No network. Your notes are saved on this device and will be sent to OneDrive when the connection is back.' },
+  syncing: { label: 'Syncing…', icon: icons.cloudUp, detail: 'Sending to OneDrive.' },
+  pending: { label: 'Pending', icon: icons.cloudUp, detail: 'Changes saved on this device are waiting to be sent to OneDrive.' },
+  ok: { label: 'Up to date', icon: icons.cloudOk, detail: 'Everything is saved in OneDrive.' },
+  error: { label: 'Error', icon: icons.cloudAlert, detail: 'The last sync failed. Your notes stay saved on this device.' },
 }
 
 function ago(t?: number): string {
-  if (!t) return 'jamais'
+  if (!t) return 'never'
   const min = Math.round((Date.now() - t) / 60000)
-  if (min < 1) return "à l'instant"
-  if (min < 60) return `il y a ${min} min`
-  return new Date(t).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  if (min < 1) return 'just now'
+  if (min < 60) return `${min} min ago`
+  return new Date(t).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 }
 
 export function createSyncChip(engine: SyncEngine, actions: { login(): void }, compact = false): HTMLElement {
@@ -29,7 +29,7 @@ export function createSyncChip(engine: SyncEngine, actions: { login(): void }, c
   const update = () => {
     const s = STATES[engine.status.state]
     chip.dataset.state = engine.status.state
-    chip.title = `OneDrive : ${s.label}`
+    chip.title = `OneDrive: ${s.label}`
     icon.innerHTML = s.icon
     label.textContent = s.label
   }
@@ -40,12 +40,12 @@ export function createSyncChip(engine: SyncEngine, actions: { login(): void }, c
     return h(
       'div',
       { class: 'popover sync-details' },
-      h('strong', {}, `OneDrive : ${s.label}`),
+      h('strong', {}, `OneDrive: ${s.label}`),
       h('p', {}, s.detail),
       st.state === 'error' && st.message ? h('p', { class: 'error-text' }, st.message) : null,
-      st.state !== 'disabled' ? h('p', { class: 'muted' }, `Dernière synchronisation : ${ago(st.lastSync)}`) : null,
-      st.state === 'signedOut' ? button('Se connecter à OneDrive', actions.login, 'primary wide') : null,
-      st.state !== 'disabled' && st.state !== 'signedOut' ? button('Synchroniser maintenant', () => void engine.sync(), 'primary wide') : null,
+      st.state !== 'disabled' ? h('p', { class: 'muted' }, `Last sync: ${ago(st.lastSync)}`) : null,
+      st.state === 'signedOut' ? button('Sign in to OneDrive', actions.login, 'primary wide') : null,
+      st.state !== 'disabled' && st.state !== 'signedOut' ? button('Sync now', () => void engine.sync(), 'primary wide') : null,
     )
   }
 

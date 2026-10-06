@@ -1,13 +1,13 @@
-// Connexion au compte Microsoft : flux OAuth 2.0 « code d'autorisation + PKCE »,
-// le flux standard pour une application web sans serveur. Aucun secret n'est
-// stocké dans l'application ; les jetons restent sur l'appareil.
+// Microsoft account sign-in: OAuth 2.0 "authorization code + PKCE" flow, the
+// standard flow for a web application without a server. No secret is stored
+// in the application; tokens stay on the device.
 
 import { MS_AUTHORITY, MS_CLIENT_ID, MS_SCOPES } from '../config'
 import { AuthRequiredError, GraphError } from './graph'
 
 interface Tokens {
   access: string
-  /** Date d'expiration du jeton d'accès (ms). */
+  /** Expiry time of the access token (ms). */
   expires: number
   refresh?: string
 }
@@ -30,7 +30,7 @@ export interface AuthDeps {
   storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
   session: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
   fetchFn: typeof fetch
-  /** Adresse de retour enregistrée chez Microsoft (adresse de l'application). */
+  /** Redirect address registered with Microsoft (the application's address). */
   redirectUri: string
   navigate(url: string): void
   clientId: string
@@ -67,8 +67,8 @@ export class Auth {
   }
 
   /**
-   * Redirige vers la page de connexion Microsoft. Avec `silent`, Microsoft ne
-   * montre rien si la session est encore ouverte et revient aussitôt.
+   * Redirects to the Microsoft sign-in page. With `silent`, Microsoft shows
+   * nothing if the session is still open and comes straight back.
    */
   async login(silent = false): Promise<void> {
     const verifier = randomString(64)
@@ -90,21 +90,21 @@ export class Auth {
   }
 
   /**
-   * À appeler au démarrage avec les paramètres de l'adresse : termine une
-   * connexion en cours. Retourne un message d'erreur à afficher, ou null.
+   * To be called at startup with the address parameters: completes a sign-in
+   * in progress. Returns an error message to display, if any.
    */
   async handleRedirect(params: URLSearchParams): Promise<{ handled: boolean; error?: string }> {
     const raw = this.deps.session.getItem(FLOW_KEY)
     if (!raw || (!params.has('code') && !params.has('error'))) return { handled: false }
     this.deps.session.removeItem(FLOW_KEY)
     const flow = JSON.parse(raw) as { verifier: string; state: string }
-    if (params.get('state') !== flow.state) return { handled: true, error: 'Réponse de connexion inattendue. Réessayez.' }
+    if (params.get('state') !== flow.state) return { handled: true, error: 'Unexpected sign-in response. Please try again.' }
     const err = params.get('error')
     if (err) {
-      // Reconnexion silencieuse impossible : l'utilisateur devra se connecter lui-même.
+      // Silent sign-in impossible: the user will have to sign in themselves.
       if (['login_required', 'interaction_required', 'consent_required', 'account_selection_required'].includes(err)) return { handled: true }
-      if (err === 'access_denied') return { handled: true, error: 'Connexion à OneDrive annulée.' }
-      return { handled: true, error: `Connexion refusée par Microsoft : ${params.get('error_description') ?? err}` }
+      if (err === 'access_denied') return { handled: true, error: 'OneDrive sign-in cancelled.' }
+      return { handled: true, error: `Sign-in refused by Microsoft: ${params.get('error_description') ?? err}` }
     }
     try {
       await this.tokenRequest({
@@ -116,13 +116,13 @@ export class Auth {
       this.deps.session.removeItem(SILENT_KEY)
       return { handled: true }
     } catch (e) {
-      return { handled: true, error: `Connexion à OneDrive impossible : ${e instanceof Error ? e.message : e}` }
+      return { handled: true, error: `Could not sign in to OneDrive: ${e instanceof Error ? e.message : e}` }
     }
   }
 
   /**
-   * Session expirée (Microsoft limite à 24 h celle d'une application web) :
-   * tente une seule fois une reconnexion sans intervention.
+   * Session expired (Microsoft limits a web application's session to 24 h):
+   * tries once to sign in again without any interaction.
    */
   canTrySilentLogin(): boolean {
     if (this.state !== 'signedOut' || this.deps.session.getItem(SILENT_KEY)) return false
@@ -148,7 +148,7 @@ export class Auth {
         body: new URLSearchParams({ client_id: this.deps.clientId, scope: MS_SCOPES, ...fields }).toString(),
       })
     } catch (e) {
-      throw new GraphError(0, 'network', e instanceof Error ? e.message : 'Réseau indisponible')
+      throw new GraphError(0, 'network', e instanceof Error ? e.message : 'Network unavailable')
     }
     const body = (await res.json().catch(() => ({}))) as {
       access_token?: string
@@ -158,8 +158,8 @@ export class Auth {
       error_description?: string
     }
     if (!res.ok || !body.access_token) {
-      if (res.status >= 500) throw new GraphError(res.status, 'server', 'Service Microsoft indisponible')
-      throw new AuthRequiredError(body.error_description?.split('\n')[0] ?? body.error ?? `Erreur ${res.status}`)
+      if (res.status >= 500) throw new GraphError(res.status, 'server', 'Microsoft service unavailable')
+      throw new AuthRequiredError(body.error_description?.split('\n')[0] ?? body.error ?? `Error ${res.status}`)
     }
     this.deps.storage.setItem(`${STORE_KEY}.known`, '1')
     this.save({
@@ -170,14 +170,14 @@ export class Auth {
     return body.access_token
   }
 
-  /** Jeton d'accès valide, renouvelé si nécessaire. */
+  /** Valid access token, renewed if necessary. */
   async getToken(): Promise<string> {
     const t = this.tokens
-    if (!t) throw new AuthRequiredError('Connexion à OneDrive requise')
+    if (!t) throw new AuthRequiredError('OneDrive sign-in required')
     if (t.expires - Date.now() > 120_000) return t.access
     if (!t.refresh) {
       this.save(null)
-      throw new AuthRequiredError('Session OneDrive expirée')
+      throw new AuthRequiredError('OneDrive session expired')
     }
     this.refreshing ??= this.tokenRequest({ grant_type: 'refresh_token', refresh_token: t.refresh })
       .catch((e) => {

@@ -1,4 +1,4 @@
-// Écran d'écriture : barre d'outils, pages, annuler/rétablir.
+// Writing screen: toolbar, pages, undo/redo.
 
 import { applyPageStructure, applyStrokeChange, getNode, getPages, getStrokes, kvGet, kvSet } from '../db'
 import { BACKGROUNDS, uid, type Background, type LibNode, type Page, type Stroke } from '../model'
@@ -7,16 +7,16 @@ import { closePopovers, confirmDialog, h, iconButton, icons, showPopover, toast 
 
 export interface EditorHandle {
   notebookId: string
-  /** Attend que tout soit enregistré localement. */
+  /** Waits until everything is saved locally. */
   flush(): Promise<void>
-  /** Recharge le contenu (remplacé par une version venue de OneDrive). */
+  /** Reloads the content (replaced by a version coming from OneDrive). */
   reload(): Promise<void>
   destroy(): void
 }
 
 export interface EditorDeps {
   onClose(): void
-  /** Appelé après chaque enregistrement local. */
+  /** Called after each local save. */
   onSaved(): void
   syncChip: HTMLElement
 }
@@ -35,10 +35,10 @@ const DEFAULT_TOOL: ToolState = {
 }
 
 const TOOLS: { kind: ToolKind; label: string; icon: string }[] = [
-  { kind: 'pen', label: 'Stylo', icon: icons.pen },
-  { kind: 'highlighter', label: 'Surligneur', icon: icons.highlighter },
-  { kind: 'eraser', label: 'Gomme', icon: icons.eraser },
-  { kind: 'line', label: 'Trait droit', icon: icons.line },
+  { kind: 'pen', label: 'Pen', icon: icons.pen },
+  { kind: 'highlighter', label: 'Highlighter', icon: icons.highlighter },
+  { kind: 'eraser', label: 'Eraser', icon: icons.eraser },
+  { kind: 'line', label: 'Straight line', icon: icons.line },
 ]
 
 export async function openEditor(root: HTMLElement, notebookId: string, deps: EditorDeps): Promise<EditorHandle | null> {
@@ -51,12 +51,12 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   let undo: StrokeChange[] = []
   let redo: StrokeChange[] = []
 
-  // Les écritures locales s'enchaînent dans l'ordre, sans jamais bloquer le tracé.
+  // Local writes are chained in order, without ever blocking the drawing.
   let chain: Promise<void> = Promise.resolve()
   const enqueue = (fn: () => Promise<void>): Promise<void> => {
     chain = chain.then(fn).then(deps.onSaved, (e) => {
-      console.error('Enregistrement', e)
-      toast("Erreur d'enregistrement sur cet appareil. Vérifiez l'espace de stockage disponible.", 8000)
+      console.error('Save', e)
+      toast('Could not save on this device. Check the available storage space.', 8000)
     })
     return chain
   }
@@ -76,12 +76,12 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     }
   }
 
-  // ---------- Structure de l'écran ----------
+  // ---------- Screen structure ----------
 
   const stage = h('div', { class: 'stage' })
   const title = h('div', { class: 'editor-title' }, node.name)
-  const undoBtn = iconButton(icons.undo, 'Annuler', () => doUndo())
-  const redoBtn = iconButton(icons.redo, 'Rétablir', () => doRedo())
+  const undoBtn = iconButton(icons.undo, 'Undo', () => doUndo())
+  const redoBtn = iconButton(icons.redo, 'Redo', () => doRedo())
   const toolButtons = new Map<ToolKind, HTMLButtonElement>()
   const quick = h('div', { class: 'quick' })
   const pageLabel = h('button', { class: 'page-pill', type: 'button', title: 'Pages', onClick: () => togglePanel() })
@@ -90,7 +90,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   const toolbar = h(
     'header',
     { class: 'toolbar' },
-    iconButton(icons.back, 'Retour à la bibliothèque', () => void close()),
+    iconButton(icons.back, 'Back to library', () => void close()),
     title,
     h(
       'div',
@@ -112,9 +112,9 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   const corner = h(
     'div',
     { class: 'corner' },
-    iconButton(icons.zoomOut, 'Dézoomer', () => canvas.zoomBy(1 / 1.25), 'small'),
-    iconButton(icons.zoomIn, 'Zoomer', () => canvas.zoomBy(1.25), 'small'),
-    h('button', { class: 'page-pill', type: 'button', title: 'Ajuster à la largeur', onClick: () => canvas.zoomBy('fit') }, 'Ajuster'),
+    iconButton(icons.zoomOut, 'Zoom out', () => canvas.zoomBy(1 / 1.25), 'small'),
+    iconButton(icons.zoomIn, 'Zoom in', () => canvas.zoomBy(1.25), 'small'),
+    h('button', { class: 'page-pill', type: 'button', title: 'Fit to width', onClick: () => canvas.zoomBy('fit') }, 'Fit'),
     pageLabel,
   )
   const view = h('div', { class: 'editor' }, toolbar, h('div', { class: 'editor-body' }, stage, corner, panel))
@@ -142,7 +142,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   canvas.setPages(pages)
   pageLabel.textContent = `1 / ${pages.length}`
 
-  // ---------- Outils ----------
+  // ---------- Tools ----------
 
   function refreshButtons(): void {
     undoBtn.disabled = undo.length === 0
@@ -167,17 +167,17 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
       saveTool()
       return
     }
-    // Second appui sur l'outil actif : ses réglages.
+    // Second tap on the active tool: its settings.
     showPopover(button, toolPanel(kind))
   }
 
   function swatches(colors: string[], current: string, pick: (c: string) => void): HTMLElement {
-    const custom = h('input', { type: 'color', class: 'swatch custom', title: 'Autre couleur', value: current, onInput: () => pick(custom.value) })
+    const custom = h('input', { type: 'color', class: 'swatch custom', title: 'Other colour', value: current, onInput: () => pick(custom.value) })
     return h(
       'div',
       { class: 'swatches' },
       ...colors.map((c) =>
-        h('button', { type: 'button', class: `swatch ${c === current ? 'selected' : ''}`, style: `background:${c}`, title: c, 'aria-label': `Couleur ${c}`, onClick: () => pick(c) }),
+        h('button', { type: 'button', class: `swatch ${c === current ? 'selected' : ''}`, style: `background:${c}`, title: c, 'aria-label': `Colour ${c}`, onClick: () => pick(c) }),
       ),
       custom,
     )
@@ -208,8 +208,8 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     const content = (): HTMLElement[] => {
       if (kind === 'eraser') {
         const modes: [ToolState['eraser']['mode'], string][] = [
-          ['stroke', 'Trait entier'],
-          ['partial', 'Précise'],
+          ['stroke', 'Whole stroke'],
+          ['partial', 'Precise'],
         ]
         return [
           h(
@@ -230,7 +230,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
               ),
             ),
           ),
-          slider('Taille', tool.eraser.size, 3, 40, 1, (v) => {
+          slider('Size', tool.eraser.size, 3, 40, 1, (v) => {
             tool.eraser.size = v
             saveTool()
           }),
@@ -243,7 +243,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
           t.color = c
           rebuild()
         }),
-        slider('Épaisseur', t.width, hl ? 4 : 0.4, hl ? 30 : 5, hl ? 1 : 0.1, (v) => {
+        slider('Width', t.width, hl ? 4 : 0.4, hl ? 30 : 5, hl ? 1 : 0.1, (v) => {
           t.width = v
           saveTool()
         }),
@@ -253,12 +253,12 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     return box
   }
 
-  /** Accès direct aux couleurs et épaisseurs courantes (écrans assez larges). */
+  /** Direct access to the current colours and widths (wide enough screens). */
   function renderQuick(): void {
     if (tool.kind === 'eraser') {
       quick.replaceChildren(
         ...ERASER_SIZES.map((s) =>
-          h('button', { type: 'button', class: `width ${tool.eraser.size === s ? 'selected' : ''}`, title: `Gomme ${s} pt`, onClick: () => ((tool.eraser.size = s), saveTool()) }, h('span', { class: 'ring', style: `width:${6 + s / 2}px;height:${6 + s / 2}px` })),
+          h('button', { type: 'button', class: `width ${tool.eraser.size === s ? 'selected' : ''}`, title: `Eraser ${s} pt`, onClick: () => ((tool.eraser.size = s), saveTool()) }, h('span', { class: 'ring', style: `width:${6 + s / 2}px;height:${6 + s / 2}px` })),
         ),
       )
       return
@@ -268,7 +268,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     const colors = (hl ? HL_COLORS : PEN_COLORS.filter((_, i) => [0, 2, 6, 4].includes(i))).slice(0, 4)
     if (!colors.includes(t.color)) colors[colors.length - 1] = t.color
     quick.replaceChildren(
-      ...colors.map((c) => h('button', { type: 'button', class: `swatch ${c === t.color ? 'selected' : ''}`, style: `background:${c}`, 'aria-label': `Couleur ${c}`, onClick: () => ((t.color = c), saveTool()) })),
+      ...colors.map((c) => h('button', { type: 'button', class: `swatch ${c === t.color ? 'selected' : ''}`, style: `background:${c}`, 'aria-label': `Colour ${c}`, onClick: () => ((t.color = c), saveTool()) })),
       h('span', { class: 'sep' }),
       ...(hl ? HL_WIDTHS : PEN_WIDTHS).map((w) =>
         h('button', { type: 'button', class: `width ${t.width === w ? 'selected' : ''}`, title: `${w} pt`, onClick: () => ((t.width = w), saveTool()) }, h('span', { class: 'bar', style: `height:${hl ? w / 3 : Math.max(1.5, w * 2)}px` })),
@@ -325,11 +325,11 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
 
   async function deletePage(index: number): Promise<void> {
     const page = pages[index]
-    if (!(await confirmDialog('Supprimer la page', `La page ${index + 1} et tout ce qui y est écrit seront supprimés. Cette action ne peut pas être annulée.`, 'Supprimer', true))) return
+    if (!(await confirmDialog('Delete page', `Page ${index + 1} and everything written on it will be deleted. This cannot be undone.`, 'Delete', true))) return
     pages.splice(index, 1)
     const put: Page[] = []
     if (!pages.length) {
-      // Un bloc-notes garde toujours au moins une page.
+      // A notebook always keeps at least one page.
       const blank: Page = { id: uid(), notebookId, bg: page.bg, orient: page.orient, rev: 0 }
       pages.push(blank)
       put.push(blank)
@@ -366,8 +366,8 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   function renderPanel(): void {
     const current = canvas.currentPageIndex()
     panel.replaceChildren(
-      h('div', { class: 'panel-head' }, h('strong', {}, `Pages (${pages.length})`), iconButton(icons.close, 'Fermer', () => togglePanel(), 'small')),
-      h('button', { class: 'btn wide', type: 'button', onClick: () => addPage(canvas.currentPageIndex()) }, `Ajouter une page après la page ${current + 1}`),
+      h('div', { class: 'panel-head' }, h('strong', {}, `Pages (${pages.length})`), iconButton(icons.close, 'Close', () => togglePanel(), 'small')),
+      h('button', { class: 'btn wide', type: 'button', onClick: () => addPage(canvas.currentPageIndex()) }, `Add a page after page ${current + 1}`),
       h(
         'ol',
         { class: 'page-list' },
@@ -378,20 +378,20 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
             h('button', { class: 'page-go', type: 'button', onClick: () => (canvas.scrollToPage(i), renderPanel()) }, `Page ${i + 1}`),
             h(
               'select',
-              { 'aria-label': `Fond de la page ${i + 1}`, onChange: (e: Event) => setBackground(i, (e.target as HTMLSelectElement).value as Background) },
+              { 'aria-label': `Background of page ${i + 1}`, onChange: (e: Event) => setBackground(i, (e.target as HTMLSelectElement).value as Background) },
               ...BACKGROUNDS.map((b) => h('option', { value: b.id, selected: b.id === p.bg }, b.label)),
             ),
-            iconButton(icons.up, 'Monter', () => movePage(i, -1), 'small'),
-            iconButton(icons.down, 'Descendre', () => movePage(i, 1), 'small'),
-            iconButton(icons.copy, 'Dupliquer', () => void duplicatePage(i), 'small'),
-            iconButton(icons.trash, 'Supprimer', () => void deletePage(i), 'small danger'),
+            iconButton(icons.up, 'Move up', () => movePage(i, -1), 'small'),
+            iconButton(icons.down, 'Move down', () => movePage(i, 1), 'small'),
+            iconButton(icons.copy, 'Duplicate', () => void duplicatePage(i), 'small'),
+            iconButton(icons.trash, 'Delete', () => void deletePage(i), 'small danger'),
           ),
         ),
       ),
     )
   }
 
-  // ---------- Clavier, fermeture ----------
+  // ---------- Keyboard, closing ----------
 
   const onKey = (e: KeyboardEvent): void => {
     if (!(e.ctrlKey || e.metaKey) || document.querySelector('dialog[open]')) return

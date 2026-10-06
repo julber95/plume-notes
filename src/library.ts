@@ -1,5 +1,5 @@
-// Opérations de la bibliothèque (dossiers et blocs-notes). Elles n'écrivent que
-// dans le stockage local ; la synchronisation les reporte ensuite sur OneDrive.
+// Library operations (folders and notebooks). They only write to local
+// storage; the sync engine then applies them to OneDrive.
 
 import { allNodes, clearNotebookContent, createNotebook as dbCreateNotebook, mutateNodes, purgeNodes, putNodes } from './db'
 import { ROOT, sanitizeName, siblingNames, uid, uniqueName, type Background, type LibNode, type Orientation, type Page } from './model'
@@ -55,7 +55,7 @@ export function renameNode(id: string, rawName: string): Promise<void> {
   })
 }
 
-/** Identifiants de `id` et de tout ce qu'il contient. */
+/** Ids of `id` and of everything it contains. */
 export function subtree(nodes: LibNode[], id: string): string[] {
   const out = [id]
   for (let i = 0; i < out.length; i++) for (const n of nodes) if (n.parentId === out[i]) out.push(n.id)
@@ -67,7 +67,7 @@ export function moveNode(id: string, newParentId: string): Promise<void> {
     const nodes = await s.all()
     const n = nodes.find((o) => o.id === id)
     if (!n || n.parentId === newParentId) return
-    // Un dossier ne peut pas être déplacé dans lui-même.
+    // A folder cannot be moved into itself.
     if (subtree(nodes, id).includes(newParentId)) return
     n.name = uniqueName(n.name, siblingNames(nodes, newParentId, n.kind, n.id))
     n.parentId = newParentId
@@ -77,7 +77,7 @@ export function moveNode(id: string, newParentId: string): Promise<void> {
   })
 }
 
-/** Supprime un élément et tout son contenu. */
+/** Deletes an item and all its content. */
 export async function deleteNode(id: string): Promise<void> {
   const purge: string[] = []
   const clear: string[] = []
@@ -87,7 +87,7 @@ export async function deleteNode(id: string): Promise<void> {
     for (const nid of subtree(nodes, id)) {
       const n = byId.get(nid)!
       if (n.remoteId) {
-        // Déjà sur OneDrive : on garde une trace pour y reporter la suppression.
+        // Already on OneDrive: keep a record so the deletion is applied there too.
         n.deleted = true
         s.put(n)
         if (n.kind === 'notebook') clear.push(nid)
@@ -100,7 +100,7 @@ export async function deleteNode(id: string): Promise<void> {
   for (const nid of clear) await clearNotebookContent(nid)
 }
 
-/** Chemin d'un dossier depuis la racine (pour le fil d'Ariane). */
+/** Path of a folder from the root (for the breadcrumb). */
 export function pathTo(nodes: LibNode[], folderId: string): LibNode[] {
   const byId = new Map(nodes.map((n) => [n.id, n]))
   const out: LibNode[] = []

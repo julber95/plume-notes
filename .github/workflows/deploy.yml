@@ -1,5 +1,5 @@
-# Met Plume en ligne sur GitHub Pages à chaque modification de la branche main.
-name: Mise en ligne
+# Publishes Plume to GitHub Pages on every change to the main branch.
+name: Deploy
 
 on:
   push:

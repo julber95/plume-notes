@@ -18,15 +18,15 @@ export async function openSettings(deps: { auth: Auth; owner(): Promise<string>;
   } catch {
     persisted = undefined
   }
-  const account = h('p', { class: 'muted' }, state === 'ready' ? 'Connecté.' : '')
+  const account = h('p', { class: 'muted' }, state === 'ready' ? 'Signed in.' : '')
   if (state === 'ready') {
     deps
       .owner()
-      .then((name) => name && (account.textContent = `Connecté au OneDrive de ${name}.`))
+      .then((name) => name && (account.textContent = `Signed in to the OneDrive of ${name}.`))
       .catch(() => {})
   }
 
-  await openDialog<true>('Réglages', (d) => {
+  await openDialog<true>('Settings', (d) => {
     const input = h('input', { type: 'number', min: 1, max: 60, step: 1, value: minutes, inputMode: 'numeric' })
     const save = () => {
       const v = Math.min(60, Math.max(1, Math.round(Number(input.value) || DEFAULT_EXPORT_MINUTES)))
@@ -35,28 +35,28 @@ export async function openSettings(deps: { auth: Auth; owner(): Promise<string>;
     }
     return [
       h('section', { class: 'settings-section' },
-        h('h3', {}, 'Export automatique'),
-        h('label', { class: 'field inline' }, h('span', {}, 'Envoyer le PDF vers OneDrive toutes les'), input, h('span', {}, 'minutes')),
-        h('p', { class: 'muted' }, "Pendant que vous écrivez. Le PDF est aussi envoyé quand vous fermez un bloc-notes ou quittez l'application."),
+        h('h3', {}, 'Automatic export'),
+        h('label', { class: 'field inline' }, h('span', {}, 'Send the PDF to OneDrive every'), input, h('span', {}, 'minutes')),
+        h('p', { class: 'muted' }, 'While you are writing. The PDF is also sent when you close a notebook or leave the application.'),
       ),
       h('section', { class: 'settings-section' },
         h('h3', {}, 'OneDrive'),
         state === 'disabled'
-          ? h('p', { class: 'muted' }, `La synchronisation n'est pas encore configurée (voir le guide, étape 1). En attendant, vos notes sont enregistrées sur cet appareil uniquement.`)
-          : h('p', { class: 'muted' }, `Vos notes sont rangées dans le dossier « ${ONEDRIVE_FOLDER} » de votre OneDrive.`),
+          ? h('p', { class: 'muted' }, 'Sync is not set up yet (see the guide, step 2). In the meantime, your notes are saved on this device only.')
+          : h('p', { class: 'muted' }, `Your notes are stored in the "${ONEDRIVE_FOLDER}" folder of your OneDrive.`),
         account,
-        state === 'signedOut' ? button('Se connecter à OneDrive', deps.login, 'primary') : null,
-        state === 'ready' ? button('Se déconnecter', () => (deps.logout(), d.close(true))) : null,
+        state === 'signedOut' ? button('Sign in to OneDrive', deps.login, 'primary') : null,
+        state === 'ready' ? button('Sign out', () => (deps.logout(), d.close(true))) : null,
       ),
       h('section', { class: 'settings-section' },
-        h('h3', {}, 'Cet appareil'),
+        h('h3', {}, 'This device'),
         h('p', { class: 'muted' },
           persisted
-            ? 'Le stockage local est protégé : le navigateur ne supprimera pas vos notes pour libérer de la place.'
-            : "Chaque trait est enregistré sur cet appareil dès qu'il est tracé. Installez Plume sur l'écran d'accueil pour que ce stockage soit protégé durablement."),
+            ? 'Local storage is protected: the browser will not delete your notes to free up space.'
+            : 'Every stroke is saved on this device as soon as it is drawn. Install Plume on the home screen so that this storage is durably protected.'),
         h('p', { class: 'muted' }, `Plume ${__APP_VERSION__}`),
       ),
-      dialogButtons(button('Annuler', () => d.close(null)), button('Enregistrer', save, 'primary')),
+      dialogButtons(button('Cancel', () => d.close(null)), button('Save', save, 'primary')),
     ]
   }, 'settings')
 }

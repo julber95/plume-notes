@@ -1,8 +1,8 @@
-// Moteur d'écriture : affichage des pages, défilement, zoom et tracé au stylet.
+// Writing engine: page display, scrolling, zoom and stylus drawing.
 //
-// Deux surfaces : `back` contient les pages telles qu'enregistrées ; `front`
-// (visible) est une copie de `back` sur laquelle on dessine le trait en cours.
-// Pendant l'écriture, seul le trait en cours est recalculé à chaque image.
+// Two surfaces: `back` holds the pages as saved; `front` (visible) is a copy
+// of `back` on which the stroke in progress is drawn. While writing, only
+// the stroke in progress is recomputed on each frame.
 
 import { backgroundSpec, type BgSpec } from '../backgrounds'
 import { HIGHLIGHTER_ALPHA, centerline, eraseFromStroke, penOutline, strokeBBox, strokeHit, type BBox } from '../geometry'
@@ -24,7 +24,7 @@ export interface StrokeChange {
 
 export interface InkHost {
   loadStrokes(pageId: string): Promise<Stroke[]>
-  /** L'utilisateur a ajouté ou effacé des traits. */
+  /** The user added or erased strokes. */
   onChange(change: StrokeChange): void
   onViewChange(pageIndex: number): void
   onAddPage(): void
@@ -45,7 +45,7 @@ interface PageView {
   loading: boolean
   bg?: BgSpec
   hasPaths: boolean
-  /** Image de la page entière, utilisée pendant le défilement et le zoom. */
+  /** Image of the whole page, used while scrolling and zooming. */
   cache?: HTMLCanvasElement
   cacheScale: number
   cacheValid: boolean
@@ -61,10 +61,10 @@ const GAP = 14
 const ADD_ZONE = 64
 const PAPER_BG = '#e7e9ed'
 const MAX_ZOOM = 8
-/** Taille maximale de l'image en cache d'une page (pixels). */
+/** Maximum size of a page's cached image (pixels). */
 const CACHE_PIXELS = 5e6
 
-/** Mesures de performance, activées par localStorage['plume.debug'] = '1'. */
+/** Performance measurements, enabled by localStorage['plume.debug'] = '1'. */
 const DEBUG = (() => {
   try {
     return localStorage.getItem('plume.debug') === '1'
@@ -77,7 +77,7 @@ function toR(s: Stroke): RStroke {
   return { ...s, bbox: strokeBBox(s) }
 }
 
-/** Contour de stylo arrondi : courbes passant par les milieux des côtés du polygone. */
+/** Rounded pen outline: curves through the midpoints of the polygon's sides. */
 function roundedOutline(p: Path2D, flat: number[]): void {
   const n = flat.length / 2
   if (n < 3) return
@@ -128,16 +128,16 @@ export class InkCanvas {
   private action: Action | null = null
   private frame = 0
   private sceneDirty = true
-  /** Défilement ou zoom en cours : on affiche les images en cache. */
+  /** Scroll or zoom in progress: cached images are displayed. */
   private moving = false
-  /** Zone d'une page à redessiner (gomme, surligneur, annulation), plutôt que tout l'écran. */
+  /** Area of a page to redraw (eraser, highlighter, undo), rather than the whole screen. */
   private dirty: { pv: PageView; box: BBox } | null = null
   private settleTimer = 0
   private idleTimer = 0
   private lastSeq = 0
   private lastPageIndex = -1
 
-  // Rejet de la paume et gestes tactiles
+  // Palm rejection and touch gestures
   private penAt = -1e9
   private penAway = true
   private touches = new Map<number, { x: number; y: number }>()
@@ -157,8 +157,8 @@ export class InkCanvas {
     this.front = document.createElement('canvas')
     this.front.className = 'ink'
     this.back = document.createElement('canvas')
-    // `desynchronized` demande au navigateur le chemin d'affichage le plus court
-    // (latence réduite avec un stylet), quand l'appareil le permet.
+    // `desynchronized` asks the browser for the shortest display path (lower
+    // latency with a stylus), when the device allows it.
     this.fctx = this.front.getContext('2d', { alpha: false, desynchronized: true })!
     this.bctx = this.back.getContext('2d', { alpha: false })!
     container.appendChild(this.front)
@@ -171,7 +171,7 @@ export class InkCanvas {
     f.addEventListener('pointerleave', this.onLeave)
     f.addEventListener('wheel', this.onWheel, { passive: false })
     f.addEventListener('contextmenu', (e) => e.preventDefault())
-    // Empêche le navigateur de traiter lui-même les gestes (défilement, zoom).
+    // Prevents the browser from handling gestures itself (scroll, zoom).
     f.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false })
 
     this.observer = new ResizeObserver(() => this.resize())
@@ -189,9 +189,9 @@ export class InkCanvas {
     this.front.remove()
   }
 
-  // ---------- Pages et mise en page ----------
+  // ---------- Pages and layout ----------
 
-  /** Remplace la liste des pages (les traits déjà chargés sont conservés). */
+  /** Replaces the list of pages (strokes already loaded are kept). */
   setPages(pages: Page[], reload = false): void {
     const old = new Map(this.pages.map((p) => [p.page.id, p]))
     let y = GAP
@@ -291,7 +291,7 @@ export class InkCanvas {
     return best
   }
 
-  /** Applique un changement venu d'ailleurs (annuler, rétablir). */
+  /** Applies a change coming from elsewhere (undo, redo). */
   applyChange(added: Stroke[], removed: Stroke[]): void {
     for (const s of removed) {
       const pv = this.pages.find((p) => p.page.id === s.pageId)
@@ -320,11 +320,11 @@ export class InkCanvas {
         for (const s of list) if (s.seq > this.lastSeq) this.lastSeq = s.seq
         this.invalidate()
       })
-      .catch((e) => console.error('Chargement de la page', e))
+      .catch((e) => console.error('Page load', e))
       .finally(() => (pv.loading = false))
   }
 
-  // ---------- Rendu ----------
+  // ---------- Rendering ----------
 
   private invalidate(): void {
     this.sceneDirty = true
@@ -355,12 +355,12 @@ export class InkCanvas {
     ctx.setTransform(s, 0, 0, s, (this.tx + pv.x * this.zoom) * this.dpr, (this.ty + pv.y * this.zoom) * this.dpr)
   }
 
-  /** Signale un déplacement de la vue ; le rendu net revient dès qu'elle s'immobilise. */
+  /** Signals that the view moved; crisp rendering returns as soon as it stops. */
   private moved(): void {
     this.moving = true
     clearTimeout(this.settleTimer)
     const settle = () => {
-      // Pas de rendu complet au milieu d'un trait : on attend qu'il soit fini.
+      // No full render in the middle of a stroke: wait until it is finished.
       if (this.action?.type === 'draw') {
         this.settleTimer = window.setTimeout(settle, 140)
         return
@@ -372,7 +372,7 @@ export class InkCanvas {
     this.invalidate()
   }
 
-  /** Demande à redessiner seulement la zone `box` de la page. */
+  /** Requests a redraw of only the `box` area of the page. */
   private markDirty(pv: PageView, box: BBox): void {
     pv.cacheValid = false
     if (this.sceneDirty) return
@@ -405,8 +405,8 @@ export class InkCanvas {
   }
 
   /**
-   * Dessine le contenu d'une page (fond et traits) dans le repère de la page.
-   * Retourne false si le temps imparti n'a pas suffi à tout préparer.
+   * Draws the content of a page (background and strokes) in page coordinates.
+   * Returns false if the allotted time was not enough to prepare everything.
    */
   private drawPage(ctx: CanvasRenderingContext2D, pv: PageView, pixelScale: number, deadline: number, clip?: BBox): boolean {
     ctx.fillStyle = '#ffffff'
@@ -445,7 +445,7 @@ export class InkCanvas {
     return Math.min(this.zoom * this.dpr, Math.sqrt(CACHE_PIXELS / (pv.w * pv.h)))
   }
 
-  /** Prépare l'image en cache d'une page. Retourne false si elle n'est pas prête. */
+  /** Prepares the cached image of a page. Returns false if it is not ready. */
   private buildCache(pv: PageView, deadline: number): boolean {
     if (!pv.strokes) return false
     const scale = this.cacheScaleFor(pv)
@@ -463,7 +463,7 @@ export class InkCanvas {
     return pv.cacheValid
   }
 
-  /** Au repos : prépare les images des pages visibles et voisines, une à la fois. */
+  /** When idle: prepares the images of visible and neighbouring pages, one at a time. */
   private prepareCaches(): void {
     clearTimeout(this.idleTimer)
     this.idleTimer = window.setTimeout(() => {
@@ -489,8 +489,8 @@ export class InkCanvas {
     const bottom = (this.cssH - this.ty) / this.zoom
     const left = -this.tx / this.zoom
     const right = (this.cssW - this.tx) / this.zoom
-    // Le calcul des contours est étalé sur plusieurs images si une page très
-    // remplie arrive à l'écran, pour ne jamais bloquer le défilement.
+    // Outline computation is spread over several frames if a very full page
+    // comes on screen, so that scrolling is never blocked.
     const deadline = performance.now() + 12
     let incomplete = false
 
@@ -500,7 +500,7 @@ export class InkCanvas {
       const near = pv.y + pv.h >= top - 2 * pv.h && pv.y <= bottom + 2 * pv.h
       if (near) this.ensureLoaded(pv)
       else {
-        // Libère la mémoire des pages éloignées.
+        // Frees the memory of far-away pages.
         if (pv.hasPaths && pv.strokes) {
           for (const s of pv.strokes) s.path = undefined
           pv.hasPaths = false
@@ -556,7 +556,7 @@ export class InkCanvas {
     ctx.lineCap = 'butt'
     for (const g of spec.lines) {
       ctx.strokeStyle = g.color
-      // Jamais plus fin qu'un demi-pixel d'écran, sinon le fond disparaît.
+      // Never thinner than half a screen pixel, otherwise the background vanishes.
       ctx.lineWidth = Math.max(g.width, 0.6 / pixelScale)
       ctx.beginPath()
       for (let i = 0; i < g.segs.length; i += 4) {
@@ -567,7 +567,7 @@ export class InkCanvas {
     }
     const d = spec.dots
     if (d) {
-      // Une ligne en pointillés à tirets nuls et bouts ronds dessine une rangée de points.
+      // A dashed line with zero-length dashes and round caps draws a row of dots.
       ctx.strokeStyle = d.color
       ctx.lineWidth = Math.max(d.radius * 2, 1.4 / pixelScale)
       ctx.lineCap = 'round'
@@ -598,10 +598,10 @@ export class InkCanvas {
     ctx.font = '500 13px system-ui, sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.fillText('+  Ajouter une page', 0, 6 + (ADD_ZONE - 18) / 2)
+    ctx.fillText('+  Add a page', 0, 6 + (ADD_ZONE - 18) / 2)
   }
 
-  /** Copie `back` vers l'écran puis dessine ce qui est provisoire. */
+  /** Copies `back` to the screen then draws what is provisional. */
   private present(): void {
     const ctx = this.fctx
     ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -636,7 +636,7 @@ export class InkCanvas {
     }
   }
 
-  // ---------- Entrées : stylet et souris ----------
+  // ---------- Input: stylus and mouse ----------
 
   private world(e: { clientX: number; clientY: number }): { x: number; y: number } {
     const r = this.front.getBoundingClientRect()
@@ -657,7 +657,7 @@ export class InkCanvas {
       this.action = { type: 'pan', pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY }
       return
     }
-    // Bouton latéral ou gomme au dos du stylet : gomme temporaire.
+    // Side button or eraser end of the stylus: temporary eraser.
     const penEraser = !mouse && (e.button === 5 || e.button === 2 || (e.buttons & 34) !== 0)
     if (e.button !== 0 && !penEraser) return
     e.preventDefault()
@@ -722,8 +722,8 @@ export class InkCanvas {
       return
     }
     const mouse = e.pointerType === 'mouse'
-    // On garde un point tous les 2/3 de pixel d'écran environ : assez dense pour
-    // des courbes rondes, même sur de petites lettres.
+    // Keep roughly one point every 2/3 of a screen pixel: dense enough for
+    // round curves, even on small letters.
     const minDist = Math.min(0.25, 0.65 / this.zoom)
     for (const ev of events) {
       const w = this.world(ev)
@@ -735,7 +735,7 @@ export class InkCanvas {
         a.pts.push(x, y, p)
         a.tail = []
       } else {
-        // Trop proche du dernier point (ou trait droit) : simple extrémité provisoire.
+        // Too close to the last point (or straight line): just a provisional end.
         a.tail = [x, y, p]
       }
     }
@@ -772,7 +772,7 @@ export class InkCanvas {
     if (!a || a.pointerId !== e.pointerId) return
     this.action = null
     if (a.type === 'draw' && a.pts.length > 3) {
-      // Le système a interrompu le geste : on garde ce qui a été écrit.
+      // The system interrupted the gesture: keep what was written.
       this.commitStroke(a)
     } else if (a.type === 'erase' && (a.removed.size || a.added.size)) {
       this.host.onChange({ added: [...a.added.values()].map(({ bbox: _b, path: _p, ...s }) => s), removed: [...a.removed.values()] })
@@ -798,10 +798,10 @@ export class InkCanvas {
     const rs = toR(stroke)
     a.pv.strokes!.push(rs)
     if (a.kind === 'highlighter') {
-      // Le surligneur passe sous l'encre : la zone touchée est redessinée.
+      // The highlighter goes under the ink: the touched area is redrawn.
       this.markDirty(a.pv, rs.bbox)
     } else if (!this.sceneDirty) {
-      // Encre : ajoutée directement par-dessus, sans rien redessiner d'autre.
+      // Ink: added directly on top, without redrawing anything else.
       const ctx = this.bctx
       this.pageTransform(ctx, a.pv)
       ctx.save()
@@ -851,7 +851,7 @@ export class InkCanvas {
         continue
       }
       changed = changed ? [Math.min(changed[0], b[0]), Math.min(changed[1], b[1]), Math.max(changed[2], b[2]), Math.max(changed[3], b[3])] : [b[0], b[1], b[2], b[3]]
-      // Un morceau créé pendant ce même geste n'a jamais été enregistré.
+      // A piece created during this same gesture was never saved.
       if (!a.added.delete(s.id)) a.removed.set(s.id, { id: s.id, pageId: s.pageId, seq: s.seq, tool: s.tool, color: s.color, width: s.width, pts: s.pts })
       for (const pts of pieces) {
         const piece = toR({ id: uid(), pageId: s.pageId, seq: s.seq, tool: s.tool, color: s.color, width: s.width, pts })
@@ -865,10 +865,10 @@ export class InkCanvas {
     }
   }
 
-  // ---------- Entrées : doigts (défilement et zoom) ----------
+  // ---------- Input: fingers (scroll and zoom) ----------
 
   private touchDown(e: PointerEvent): void {
-    // Paume : stylet en train d'écrire ou à proximité, ou contact très large.
+    // Palm: stylus writing or nearby, or very wide contact.
     if (this.action) return
     if (!this.penAway && performance.now() - this.penAt < 700) return
     if (e.width > 70 || e.height > 70) return
@@ -879,7 +879,7 @@ export class InkCanvas {
     try {
       this.front.setPointerCapture(e.pointerId)
     } catch {
-      // pointeur déjà relâché
+      // pointer already released
     }
   }
 
@@ -895,7 +895,7 @@ export class InkCanvas {
       this.gesture.moved += Math.abs(dx) + Math.abs(dy)
       const now = performance.now()
       const dt = Math.max(1, now - this.velocity.t)
-      // Vitesse lissée, pour l'élan au relâchement.
+      // Smoothed velocity, for the momentum on release.
       this.velocity = { x: 0.7 * (dx / dt) + 0.3 * this.velocity.x, y: 0.7 * (dy / dt) + 0.3 * this.velocity.y, t: now }
     } else {
       const other = [...this.touches.entries()].find(([id]) => id !== e.pointerId)![1]
@@ -933,11 +933,11 @@ export class InkCanvas {
     if (now - this.velocity.t < 80 && Math.hypot(this.velocity.x, this.velocity.y) > 0.15) this.startInertia()
   }
 
-  /** Abandonne le geste tactile en cours (le stylet vient de se poser). */
+  /** Abandons the touch gesture in progress (the stylus just touched down). */
   private cancelTouch(restore: boolean): void {
     const g = this.gesture
     if (!g) return
-    // Un défilement tout juste commencé était dû à la paume : on l'annule.
+    // A scroll that had only just started was caused by the palm: cancel it.
     if (restore && performance.now() - g.start < 500) {
       this.tx = g.tx
       this.ty = g.ty
@@ -1002,7 +1002,7 @@ export class InkCanvas {
     this.moved()
   }
 
-  /** Zoom par boutons : facteur multiplicatif, ou 'fit' pour ajuster à la largeur. */
+  /** Zoom from buttons: multiplicative factor, or 'fit' to fit the width. */
   zoomBy(factor: number | 'fit'): void {
     if (factor === 'fit') {
       this.autoFit = true

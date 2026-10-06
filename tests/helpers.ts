@@ -1,6 +1,6 @@
 import { uid, type Stroke, type StrokeTool } from '../src/model'
 
-/** Générateur pseudo-aléatoire reproductible. */
+/** Reproducible pseudo-random generator. */
 export function rng(seed: number): () => number {
   let s = seed >>> 0
   return () => {
@@ -9,7 +9,7 @@ export function rng(seed: number): () => number {
   }
 }
 
-/** Un trait qui ressemble à une lettre manuscrite (boucle d'environ 8 pt). */
+/** A stroke that looks like a handwritten letter (a loop of about 8 pt). */
 export function letter(pageId: string, x: number, y: number, seq: number, rand: () => number, tool: StrokeTool = 'pen'): Stroke {
   const n = 28
   const pts = new Float32Array(n * 3)
@@ -25,7 +25,7 @@ export function letter(pageId: string, x: number, y: number, seq: number, rand: 
   return { id: uid(), pageId, seq, tool, color: '#1a1a1a', width: tool === 'pen' ? 1.3 : 12, pts }
 }
 
-/** Une page d'écriture dense : `lines` lignes de `perLine` lettres. */
+/** A densely written page: `lines` lines of `perLine` letters. */
 export function writtenPage(pageId: string, seed: number, lines = 30, perLine = 60): Stroke[] {
   const rand = rng(seed)
   const out: Stroke[] = []

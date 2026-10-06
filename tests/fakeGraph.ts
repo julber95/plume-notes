@@ -1,5 +1,5 @@
-// Faux OneDrive en mémoire, au niveau HTTP : le vrai client Graph de
-// l'application est utilisé tel quel dans les tests.
+// Fake in-memory OneDrive, at the HTTP level: the application's real Graph
+// client is used as is in the tests.
 
 interface Item {
   id: string
@@ -21,11 +21,11 @@ export class FakeDrive {
   private seq = 0
   private nextId = 1
   online = true
-  /** Journal des requêtes « MÉTHODE chemin ». */
+  /** Request log, "METHOD path". */
   calls: string[] = []
-  /** Appelé une fois juste avant le prochain envoi de contenu (PUT). */
+  /** Called once just before the next content upload (PUT). */
   beforeNextPut: (() => void) | null = null
-  /** false : le suivi des changements (delta) est refusé. */
+  /** false: change tracking (delta) is refused. */
   deltaSupported = true
   tokenValid = true
 
@@ -33,7 +33,7 @@ export class FakeDrive {
     this.items.set('ROOT', { id: 'ROOT', name: 'root', parentId: null, folder: true, eTagN: 0, cTagN: 0, changedAt: 0 })
   }
 
-  // ----- Actions « faites depuis un autre appareil » -----
+  // ----- Actions "done from another device" -----
 
   private touch(it: Item, content = false): void {
     it.eTagN++
@@ -53,7 +53,7 @@ export class FakeDrive {
     return cur
   }
 
-  /** Arborescence lisible, pour les assertions. */
+  /** Readable tree, for assertions. */
   tree(id = 'ROOT', prefix = ''): string[] {
     const out: string[] = []
     for (const c of this.children(id).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -87,7 +87,7 @@ export class FakeDrive {
   }
 
   delete(it: Item): void {
-    // Comme OneDrive peut le faire : seul l'élément supprimé est signalé, pas son contenu.
+    // As OneDrive may do: only the deleted item is reported, not its content.
     const mark = (i: Item) => {
       i.deleted = true
       for (const c of [...this.items.values()].filter((x) => x.parentId === i.id)) mark(c)
@@ -96,7 +96,7 @@ export class FakeDrive {
     it.changedAt = ++this.seq
   }
 
-  // ----- Serveur HTTP -----
+  // ----- HTTP server -----
 
   private async hashAll(): Promise<void> {
     for (const it of this.items.values()) {
@@ -163,7 +163,7 @@ export class FakeDrive {
     const body = typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, any>) : undefined
     let m: RegExpExecArray | null
 
-    if (method === 'GET' && path === '/me/drive') return reply(200, { owner: { user: { displayName: 'Valérie' } } })
+    if (method === 'GET' && path === '/me/drive') return reply(200, { owner: { user: { displayName: 'Alex' } } })
 
     if (method === 'GET' && (m = /^\/me\/drive\/root:\/([^:]+)$/.exec(path))) {
       const it = this.find(m[1])
@@ -237,6 +237,6 @@ export class FakeDrive {
         return reply(200, this.json(it))
       }
     }
-    return fail(400, `route inconnue : ${method} ${path}`)
+    return fail(400, `unknown route: ${method} ${path}`)
   }
 }

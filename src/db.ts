@@ -1,5 +1,5 @@
-// Stockage local (IndexedDB). Utilisé par l'interface et par le worker PDF :
-// aucun accès au DOM ici.
+// Local storage (IndexedDB). Used by the interface and by the PDF worker:
+// no DOM access here.
 
 import type { LibNode, Page, Stroke } from './model'
 
@@ -30,7 +30,7 @@ export function openDb(): Promise<IDBDatabase> {
   return dbPromise
 }
 
-/** Pour les tests : oublie la connexion ouverte. */
+/** For tests: forgets the open connection. */
 export async function closeDb(): Promise<void> {
   if (dbPromise) (await dbPromise).close()
   dbPromise = null
@@ -46,8 +46,8 @@ function req<T>(r: IDBRequest<T>): Promise<T> {
 }
 
 /**
- * Exécute `fn` dans une transaction et attend sa validation. `fn` ne doit
- * attendre que des requêtes IndexedDB (sinon la transaction se ferme).
+ * Runs `fn` in a transaction and waits for it to commit. `fn` must only await
+ * IndexedDB requests (otherwise the transaction closes).
  */
 async function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => Promise<T> | T, strict = false): Promise<T> {
   const db = await openDb()
@@ -55,7 +55,7 @@ async function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBT
   const done = new Promise<void>((resolve, reject) => {
     t.oncomplete = () => resolve()
     t.onerror = () => reject(t.error)
-    t.onabort = () => reject(t.error ?? new Error('Transaction annulée'))
+    t.onabort = () => reject(t.error ?? new Error('Transaction aborted'))
   })
   let result: T
   try {
@@ -64,7 +64,7 @@ async function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBT
     try {
       t.abort()
     } catch {
-      // déjà terminée
+      // already finished
     }
     await done.catch(() => {})
     throw e
@@ -73,7 +73,7 @@ async function tx<T>(stores: StoreName[], mode: IDBTransactionMode, fn: (t: IDBT
   return result
 }
 
-// ---------- Réglages ----------
+// ---------- Settings ----------
 
 export function kvGet<T>(key: string): Promise<T | undefined> {
   return tx(['kv'], 'readonly', (t) => req(t.objectStore('kv').get(key)) as Promise<T | undefined>)
@@ -86,7 +86,7 @@ export function kvSet(key: string, value: unknown): Promise<void> {
   })
 }
 
-// ---------- Bibliothèque ----------
+// ---------- Library ----------
 
 export function allNodes(): Promise<LibNode[]> {
   return tx(['nodes'], 'readonly', (t) => req(t.objectStore('nodes').getAll()) as Promise<LibNode[]>)
@@ -103,9 +103,9 @@ export function putNodes(nodes: LibNode[]): Promise<void> {
 }
 
 /**
- * Lit, modifie et réécrit un nœud dans une seule transaction, pour que
- * l'interface et la synchronisation ne s'écrasent pas mutuellement.
- * `fn` retourne `false` pour ne rien écrire.
+ * Reads, modifies and writes back a node in a single transaction, so that
+ * the interface and the sync engine never overwrite each other.
+ * `fn` returns `false` to write nothing.
  */
 export function updateNode(id: string, fn: (n: LibNode) => void | false): Promise<LibNode | undefined> {
   return tx(['nodes'], 'readwrite', async (t) => {
@@ -118,7 +118,7 @@ export function updateNode(id: string, fn: (n: LibNode) => void | false): Promis
   })
 }
 
-/** Plusieurs écritures de nœuds dans une seule transaction. */
+/** Several node writes in a single transaction. */
 export interface NodeStore {
   all(): Promise<LibNode[]>
   get(id: string): Promise<LibNode | undefined>
@@ -138,7 +138,7 @@ export function mutateNodes(fn: (store: NodeStore) => Promise<void>): Promise<vo
   })
 }
 
-// ---------- Contenu des blocs-notes ----------
+// ---------- Notebook content ----------
 
 export function getPages(notebookId: string): Promise<Page[]> {
   return tx(['pages'], 'readonly', (t) => req(t.objectStore('pages').index('notebookId').getAll(notebookId)) as Promise<Page[]>)
@@ -152,8 +152,8 @@ export function getStrokes(pageId: string): Promise<Stroke[]> {
 }
 
 /**
- * Numéro de révision d'une page : toujours croissant et jamais réutilisé, car
- * le rendu PDF mis en cache est retrouvé par ce numéro.
+ * Revision number of a page: always increasing and never reused, because
+ * the cached PDF rendering is looked up by this number.
  */
 function nextRev(rev: number): number {
   return Math.max(rev + 1, Date.now())
@@ -176,8 +176,8 @@ function deleteStrokesOfPage(t: IDBTransaction, pageId: string): Promise<void> {
 }
 
 /**
- * Enregistre une modification de traits (ajouts et suppressions sur une page)
- * de façon atomique et durable, et marque la page et le bloc-notes modifiés.
+ * Saves a stroke change (additions and removals on one page) atomically and
+ * durably, and marks the page and the notebook as modified.
  */
 export function applyStrokeChange(notebookId: string, pageId: string, add: Stroke[], removeIds: string[]): Promise<void> {
   return tx(
@@ -206,14 +206,14 @@ export function applyStrokeChange(notebookId: string, pageId: string, add: Strok
 }
 
 export interface PageStructureChange {
-  /** Nouvel ordre complet des pages. */
+  /** New complete page order. */
   pageIds: string[]
   putPages?: Page[]
   deletePageIds?: string[]
   addStrokes?: Stroke[]
 }
 
-/** Ajout, suppression, déplacement ou changement de fond de pages. */
+/** Adding, deleting, moving pages or changing their background. */
 export function applyPageStructure(notebookId: string, change: PageStructureChange): Promise<void> {
   return tx(
     CONTENT,
@@ -243,7 +243,7 @@ export function applyPageStructure(notebookId: string, change: PageStructureChan
   )
 }
 
-/** Crée un bloc-notes avec ses premières pages. */
+/** Creates a notebook with its first pages. */
 export function createNotebook(node: LibNode, pages: Page[]): Promise<void> {
   return tx(['nodes', 'pages'], 'readwrite', (t) => {
     t.objectStore('nodes').put(node)
@@ -260,7 +260,7 @@ async function deleteNotebookContent(t: IDBTransaction, notebookId: string): Pro
   }
 }
 
-/** Supprime définitivement des nœuds locaux et le contenu des blocs-notes. */
+/** Permanently deletes local nodes and the content of notebooks. */
 export function purgeNodes(ids: string[]): Promise<void> {
   return tx(CONTENT, 'readwrite', async (t) => {
     for (const id of ids) {
@@ -270,7 +270,7 @@ export function purgeNodes(ids: string[]): Promise<void> {
   })
 }
 
-/** Efface le contenu local d'un bloc-notes (le nœud est conservé). */
+/** Erases the local content of a notebook (the node is kept). */
 export function clearNotebookContent(notebookId: string): Promise<void> {
   return tx(CONTENT, 'readwrite', (t) => deleteNotebookContent(t, notebookId))
 }
@@ -281,9 +281,9 @@ export interface NotebookContent {
 }
 
 /**
- * Remplace le contenu local d'un bloc-notes par celui téléchargé depuis
- * OneDrive. N'écrit rien et retourne `false` si le bloc-notes a été modifié
- * localement entre-temps (rev différent de `expectRev`).
+ * Replaces the local content of a notebook with the one downloaded from
+ * OneDrive. Writes nothing and returns `false` if the notebook was modified
+ * locally in the meantime (rev different from `expectRev`).
  */
 export function replaceNotebookContent(notebookId: string, expectRev: number, content: NotebookContent, patch: (n: LibNode) => void): Promise<boolean> {
   return tx(
@@ -305,7 +305,7 @@ export function replaceNotebookContent(notebookId: string, expectRev: number, co
   )
 }
 
-/** Rendu PDF d'une page, conservé pour ne recalculer que les pages modifiées. */
+/** PDF rendering of a page, kept so that only modified pages are recomputed. */
 export interface PdfCacheRecord {
   pageId: string
   rev: number
@@ -318,7 +318,7 @@ export interface NotebookSnapshot {
   pages: (Page & { strokes: Stroke[]; cached?: PdfCacheRecord })[]
 }
 
-/** Lecture cohérente d'un bloc-notes entier (pour l'export PDF). */
+/** Consistent read of a whole notebook (for PDF export). */
 export function snapshotNotebook(notebookId: string): Promise<NotebookSnapshot | undefined> {
   return tx(CONTENT, 'readonly', async (t) => {
     const node = (await req(t.objectStore('nodes').get(notebookId))) as LibNode | undefined
@@ -329,7 +329,7 @@ export function snapshotNotebook(notebookId: string): Promise<NotebookSnapshot |
     for (const id of node.pageIds ?? []) {
       const p = byId.get(id)
       if (!p) continue
-      // Les traits d'une page dont le rendu est déjà en cache ne sont pas relus.
+      // Strokes of a page whose rendering is already cached are not read again.
       let cached = (await req(t.objectStore('pdfcache').get(id))) as PdfCacheRecord | undefined
       if (cached?.rev !== p.rev) cached = undefined
       let strokes: Stroke[] = []

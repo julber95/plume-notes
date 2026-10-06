@@ -18,7 +18,7 @@ let auth: 'disabled' | 'signedOut' | 'ready'
 let openId: string | null
 const rand = rng(7)
 
-/** Simule un appareil vierge (ou une réinstallation) : stockage local vide. */
+/** Simulates a fresh device (or a reinstall): empty local storage. */
 async function freshDevice(): Promise<void> {
   await closeDb()
   globalThis.indexedDB = new IDBFactory()
@@ -63,31 +63,31 @@ async function remoteStrokes(path: string): Promise<number> {
 
 const byName = async (name: string) => (await allNodes()).find((n) => n.name === name && !n.deleted)!
 
-describe('synchronisation OneDrive', () => {
-  it('reproduit dossiers et blocs-notes dans OneDrive/Plume, chaque bloc-notes en PDF', async () => {
+describe('OneDrive sync', () => {
+  it('mirrors folders and notebooks in OneDrive/Plume, each notebook as a PDF', async () => {
     const maths = await createFolder(ROOT, 'Maths')
-    const analyse = await createFolder(maths.id, 'Analyse')
-    const nb = await createNotebook(analyse.id, 'Chapitre 1', 'grid', 'portrait')
-    await createNotebook(ROOT, 'Brouillon', 'blank', 'landscape')
+    const calculus = await createFolder(maths.id, 'Calculus')
+    const nb = await createNotebook(calculus.id, 'Chapter 1', 'grid', 'portrait')
+    await createNotebook(ROOT, 'Draft', 'blank', 'landscape')
     await write(nb, 5)
     await engine.sync()
     expect(engine.status.state).toBe('ok')
-    expect(drive.tree()).toEqual(['Plume/', 'Plume/Brouillon.pdf', 'Plume/Maths/', 'Plume/Maths/Analyse/', 'Plume/Maths/Analyse/Chapitre 1.pdf'])
-    const pdf = drive.find('Plume/Maths/Analyse/Chapitre 1.pdf')!.content!
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Draft.pdf', 'Plume/Maths/', 'Plume/Maths/Calculus/', 'Plume/Maths/Calculus/Chapter 1.pdf'])
+    const pdf = drive.find('Plume/Maths/Calculus/Chapter 1.pdf')!.content!
     expect(new TextDecoder().decode(pdf.slice(0, 5))).toBe('%PDF-')
-    expect(await remoteStrokes('Plume/Maths/Analyse/Chapitre 1.pdf')).toBe(5)
+    expect(await remoteStrokes('Plume/Maths/Calculus/Chapter 1.pdf')).toBe(5)
   })
 
-  it('reporte renommages, déplacements et suppressions', async () => {
+  it('applies renames, moves and deletions', async () => {
     const a = await createFolder(ROOT, 'A')
     const b = await createFolder(ROOT, 'B')
-    const nb = await createNotebook(a.id, 'Cours', 'lined', 'portrait')
+    const nb = await createNotebook(a.id, 'Course', 'lined', 'portrait')
     await engine.sync()
-    await renameNode(nb.id, 'Cours de lundi')
+    await renameNode(nb.id, 'Monday course')
     await moveNode(nb.id, b.id)
     await renameNode(a.id, 'Archives')
     await engine.sync()
-    expect(drive.tree()).toEqual(['Plume/', 'Plume/Archives/', 'Plume/B/', 'Plume/B/Cours de lundi.pdf'])
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Archives/', 'Plume/B/', 'Plume/B/Monday course.pdf'])
     await deleteNode(b.id)
     await engine.sync()
     expect(drive.tree()).toEqual(['Plume/', 'Plume/Archives/'])
@@ -95,10 +95,10 @@ describe('synchronisation OneDrive', () => {
     expect((await allNodes()).length).toBe(1)
   })
 
-  it('hors ligne : tout est gardé en attente puis envoyé au retour du réseau', async () => {
+  it('offline: everything is kept pending then sent when the network is back', async () => {
     drive.online = false
-    const f = await createFolder(ROOT, 'Physique')
-    const nb = await createNotebook(f.id, 'TD 3', 'seyes', 'portrait')
+    const f = await createFolder(ROOT, 'Physics')
+    const nb = await createNotebook(f.id, 'Tutorial 3', 'seyes', 'portrait')
     await write(nb, 3)
     await engine.sync()
     expect(engine.status.state).toBe('offline')
@@ -107,12 +107,12 @@ describe('synchronisation OneDrive', () => {
     drive.online = true
     await engine.sync()
     expect(engine.status.state).toBe('ok')
-    expect(drive.tree()).toEqual(['Plume/', 'Plume/Physique/', 'Plume/Physique/TD 3.pdf'])
-    expect(await remoteStrokes('Plume/Physique/TD 3.pdf')).toBe(3)
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Physics/', 'Plume/Physics/Tutorial 3.pdf'])
+    expect(await remoteStrokes('Plume/Physics/Tutorial 3.pdf')).toBe(3)
   })
 
-  it('une coupure réseau en plein envoi ne perd rien et reprend ensuite', async () => {
-    const nb = await createNotebook(ROOT, 'Cours', 'grid', 'portrait')
+  it('a network cut in the middle of an upload loses nothing and resumes afterwards', async () => {
+    const nb = await createNotebook(ROOT, 'Course', 'grid', 'portrait')
     await write(nb, 2)
     drive.beforeNextPut = () => (drive.online = false)
     await engine.sync()
@@ -120,11 +120,11 @@ describe('synchronisation OneDrive', () => {
     expect(await strokeCount(nb)).toBe(2)
     drive.online = true
     await engine.sync()
-    expect(await remoteStrokes('Plume/Cours.pdf')).toBe(2)
+    expect(await remoteStrokes('Plume/Course.pdf')).toBe(2)
   })
 
-  it('ne renvoie un PDF que s’il a changé', async () => {
-    const nb = await createNotebook(ROOT, 'Cours', 'grid', 'portrait')
+  it('only re-uploads a PDF if it changed', async () => {
+    const nb = await createNotebook(ROOT, 'Course', 'grid', 'portrait')
     await engine.sync()
     const puts = () => drive.calls.filter((c) => c.startsWith('PUT')).length
     expect(puts()).toBe(1)
@@ -135,181 +135,181 @@ describe('synchronisation OneDrive', () => {
     expect(engine.status.state).toBe('pending')
     await engine.sync()
     expect(puts()).toBe(2)
-    expect(await remoteStrokes('Plume/Cours.pdf')).toBe(2)
+    expect(await remoteStrokes('Plume/Course.pdf')).toBe(2)
     expect(engine.status.state).toBe('ok')
   })
 
-  it('un autre appareil retrouve toute l’arborescence et des notes modifiables', async () => {
-    const f = await createFolder(ROOT, 'Chimie')
-    const nb = await createNotebook(f.id, 'Cours 1', 'dots', 'landscape')
+  it('another device gets the whole tree and editable notes', async () => {
+    const f = await createFolder(ROOT, 'Chemistry')
+    const nb = await createNotebook(f.id, 'Course 1', 'dots', 'landscape')
     await write(nb, 12)
     await engine.sync()
     await freshDevice()
     expect(await local()).toEqual([])
     await engine.sync()
-    expect(await local()).toEqual(['Chimie/', 'Chimie/Cours 1.pdf'])
-    const copy = await byName('Cours 1')
+    expect(await local()).toEqual(['Chemistry/', 'Chemistry/Course 1.pdf'])
+    const copy = await byName('Course 1')
     expect(await strokeCount(copy)).toBe(12)
     expect([copy.bg, copy.orient, copy.needsDownload]).toEqual(['dots', 'landscape', false])
-    // On continue à écrire sur le second appareil : le PDF est mis à jour, pas dupliqué.
+    // Writing continues on the second device: the PDF is updated, not duplicated.
     await write(copy, 1)
     await engine.sync()
-    expect(drive.tree()).toEqual(['Plume/', 'Plume/Chimie/', 'Plume/Chimie/Cours 1.pdf'])
-    expect(await remoteStrokes('Plume/Chimie/Cours 1.pdf')).toBe(13)
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Chemistry/', 'Plume/Chemistry/Course 1.pdf'])
+    expect(await remoteStrokes('Plume/Chemistry/Course 1.pdf')).toBe(13)
     expect((await engine.notices()).length).toBe(0)
   })
 
-  it('applique ici les changements faits dans OneDrive (renommer, déplacer, supprimer)', async () => {
+  it('applies here the changes made in OneDrive (rename, move, delete)', async () => {
     const a = await createFolder(ROOT, 'A')
     await createFolder(ROOT, 'B')
-    const nb = await createNotebook(a.id, 'Cours', 'grid', 'portrait')
-    await createNotebook(a.id, 'Vieux', 'grid', 'portrait')
+    const nb = await createNotebook(a.id, 'Course', 'grid', 'portrait')
+    await createNotebook(a.id, 'Old', 'grid', 'portrait')
     await write(nb, 4)
     await engine.sync()
-    drive.rename(drive.find('Plume/A/Cours.pdf')!, 'Algèbre.pdf')
-    drive.move(drive.find('Plume/A/Algèbre.pdf')!, drive.find('Plume/B')!)
+    drive.rename(drive.find('Plume/A/Course.pdf')!, 'Algebra.pdf')
+    drive.move(drive.find('Plume/A/Algebra.pdf')!, drive.find('Plume/B')!)
     drive.delete(drive.find('Plume/A')!)
-    drive.add(drive.find('Plume')!.id, 'Nouveau')
+    drive.add(drive.find('Plume')!.id, 'New')
     await engine.sync()
-    expect(await local()).toEqual(['B/', 'B/Algèbre.pdf', 'Nouveau/'])
-    expect(await strokeCount(await byName('Algèbre'))).toBe(4)
+    expect(await local()).toEqual(['B/', 'B/Algebra.pdf', 'New/'])
+    expect(await strokeCount(await byName('Algebra'))).toBe(4)
     expect(drive.calls.filter((c) => c.startsWith('PUT')).length).toBe(2)
     expect((await engine.notices()).length).toBe(0)
   })
 
-  it('fonctionne aussi sans suivi des changements (parcours complet du dossier)', async () => {
+  it('also works without change tracking (full folder traversal)', async () => {
     drive.deltaSupported = false
     const a = await createFolder(ROOT, 'A')
-    await createNotebook(a.id, 'Cours', 'grid', 'portrait')
+    await createNotebook(a.id, 'Course', 'grid', 'portrait')
     await engine.sync()
-    drive.delete(drive.find('Plume/A/Cours.pdf')!)
-    drive.add(drive.find('Plume/A')!.id, 'Sous-dossier')
+    drive.delete(drive.find('Plume/A/Course.pdf')!)
+    drive.add(drive.find('Plume/A')!.id, 'Subfolder')
     await engine.sync()
-    expect(await local()).toEqual(['A/', 'A/Sous-dossier/'])
+    expect(await local()).toEqual(['A/', 'A/Subfolder/'])
   })
 
-  it('conflit : modifié ici et ailleurs, les deux versions sont conservées', async () => {
-    const nb = await createNotebook(ROOT, 'Cours', 'grid', 'portrait')
+  it('conflict: modified here and elsewhere, both versions are kept', async () => {
+    const nb = await createNotebook(ROOT, 'Course', 'grid', 'portrait')
     await write(nb, 2)
     await engine.sync()
-    // Ailleurs : une version à 7 traits remplace le fichier.
+    // Elsewhere: a version with 7 strokes replaces the file.
     const other = await buildNotebookPdf({
-      name: 'Cours',
+      name: 'Course',
       bg: 'grid',
       orient: 'portrait',
       pages: [{ id: 'x', bg: 'grid', orient: 'portrait', rev: 0, strokes: Array.from({ length: 7 }, (_, i) => letter('x', 50 + i * 20, 80, i, rand)) }],
     })
-    drive.replace(drive.find('Plume/Cours.pdf')!, other)
-    // Ici, sans le savoir : on ajoute 1 trait.
+    drive.replace(drive.find('Plume/Course.pdf')!, other)
+    // Here, unaware of it: 1 stroke is added.
     await write(nb, 1)
     await engine.sync()
     expect(engine.status.state).toBe('ok')
     const names = await local()
     expect(names.length).toBe(2)
-    expect(names[1]).toBe('Cours.pdf')
-    expect(names[0]).toMatch(/^Cours \(conflit \d{4}-\d\d-\d\d \d\dh\d\d\)\.pdf$/)
-    expect(await strokeCount(await byName('Cours'))).toBe(7)
-    const mine = (await allNodes()).find((n) => n.name.includes('conflit'))!
+    expect(names[1]).toBe('Course.pdf')
+    expect(names[0]).toMatch(/^Course \(conflict \d{4}-\d\d-\d\d \d\dh\d\d\)\.pdf$/)
+    expect(await strokeCount(await byName('Course'))).toBe(7)
+    const mine = (await allNodes()).find((n) => n.name.includes('conflict'))!
     expect(mine.id).toBe(nb.id)
     expect(await strokeCount(mine)).toBe(3)
-    expect(await remoteStrokes('Plume/Cours.pdf')).toBe(7)
+    expect(await remoteStrokes('Plume/Course.pdf')).toBe(7)
     expect(await remoteStrokes(`Plume/${names[0]}`)).toBe(3)
     const notices = await engine.notices()
     expect(notices.length).toBe(1)
-    expect(notices[0].text).toContain('deux endroits')
+    expect(notices[0].text).toContain('two places')
   })
 
-  it('conflit détecté au moment de l’envoi (le fichier change juste avant)', async () => {
-    const nb = await createNotebook(ROOT, 'Cours', 'grid', 'portrait')
+  it('conflict detected at upload time (the file changes just before)', async () => {
+    const nb = await createNotebook(ROOT, 'Course', 'grid', 'portrait')
     await engine.sync()
     await write(nb, 1)
     const strokes = Array.from({ length: 5 }, (_, i) => letter('x', 50 + i * 20, 80, i, rand))
-    const other = await buildNotebookPdf({ name: 'Cours', bg: 'grid', orient: 'portrait', pages: [{ id: 'x', bg: 'grid', orient: 'portrait', rev: 0, strokes }] })
-    drive.beforeNextPut = () => drive.replace(drive.find('Plume/Cours.pdf')!, other)
+    const other = await buildNotebookPdf({ name: 'Course', bg: 'grid', orient: 'portrait', pages: [{ id: 'x', bg: 'grid', orient: 'portrait', rev: 0, strokes }] })
+    drive.beforeNextPut = () => drive.replace(drive.find('Plume/Course.pdf')!, other)
     await engine.sync()
     expect((await local()).length).toBe(2)
-    expect(await remoteStrokes('Plume/Cours.pdf')).toBe(5)
-    expect(await strokeCount(await byName('Cours'))).toBe(5)
+    expect(await remoteStrokes('Plume/Course.pdf')).toBe(5)
+    expect(await strokeCount(await byName('Course'))).toBe(5)
     expect(await strokeCount(await getNodeByKept(nb.id))).toBe(1)
     expect(drive.tree().length).toBe(3)
   })
 
-  it('un simple renommage dans OneDrive ne crée pas de faux conflit', async () => {
-    const nb = await createNotebook(ROOT, 'Cours', 'grid', 'portrait')
+  it('a plain rename in OneDrive does not create a false conflict', async () => {
+    const nb = await createNotebook(ROOT, 'Course', 'grid', 'portrait')
     await engine.sync()
     await write(nb, 1)
-    drive.beforeNextPut = () => drive.rename(drive.find('Plume/Cours.pdf')!, 'Cours renommé.pdf')
+    drive.beforeNextPut = () => drive.rename(drive.find('Plume/Course.pdf')!, 'Course renamed.pdf')
     await engine.sync()
-    expect(await local()).toEqual(['Cours renommé.pdf'])
-    expect(await remoteStrokes('Plume/Cours renommé.pdf')).toBe(1)
+    expect(await local()).toEqual(['Course renamed.pdf'])
+    expect(await remoteStrokes('Plume/Course renamed.pdf')).toBe(1)
     expect((await engine.notices()).length).toBe(0)
   })
 
-  it('supprimé dans OneDrive mais modifié ici : conservé et renvoyé', async () => {
-    const f = await createFolder(ROOT, 'Dossier')
-    const nb = await createNotebook(f.id, 'Cours', 'grid', 'portrait')
-    const calme = await createNotebook(f.id, 'Calme', 'grid', 'portrait')
+  it('deleted in OneDrive but modified here: kept and uploaded again', async () => {
+    const f = await createFolder(ROOT, 'Folder')
+    const nb = await createNotebook(f.id, 'Course', 'grid', 'portrait')
+    const quiet = await createNotebook(f.id, 'Quiet', 'grid', 'portrait')
     await engine.sync()
     await write(nb, 2)
-    drive.delete(drive.find('Plume/Dossier')!)
+    drive.delete(drive.find('Plume/Folder')!)
     await engine.sync()
-    expect(await local()).toEqual(['Dossier/', 'Dossier/Cours.pdf'])
-    expect(drive.tree()).toEqual(['Plume/', 'Plume/Dossier/', 'Plume/Dossier/Cours.pdf'])
-    expect(await remoteStrokes('Plume/Dossier/Cours.pdf')).toBe(2)
-    expect(await getPages(calme.id)).toEqual([])
+    expect(await local()).toEqual(['Folder/', 'Folder/Course.pdf'])
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Folder/', 'Plume/Folder/Course.pdf'])
+    expect(await remoteStrokes('Plume/Folder/Course.pdf')).toBe(2)
+    expect(await getPages(quiet.id)).toEqual([])
     expect((await engine.notices()).length).toBe(1)
   })
 
-  it('dossier Plume supprimé de OneDrive : rien n’est effacé ici, tout est renvoyé', async () => {
+  it('Plume folder deleted from OneDrive: nothing is erased here, everything is uploaded again', async () => {
     const f = await createFolder(ROOT, 'Maths')
-    const nb = await createNotebook(f.id, 'Cours', 'grid', 'portrait')
+    const nb = await createNotebook(f.id, 'Course', 'grid', 'portrait')
     await write(nb, 3)
     await engine.sync()
     drive.delete(drive.find('Plume')!)
     await engine.sync()
-    expect(await local()).toEqual(['Maths/', 'Maths/Cours.pdf'])
+    expect(await local()).toEqual(['Maths/', 'Maths/Course.pdf'])
     expect(await strokeCount(nb)).toBe(3)
-    expect(drive.tree()).toEqual(['Plume/', 'Plume/Maths/', 'Plume/Maths/Cours.pdf'])
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Maths/', 'Plume/Maths/Course.pdf'])
   })
 
-  it('un PDF étranger du même nom n’est jamais écrasé', async () => {
+  it('a foreign PDF with the same name is never overwritten', async () => {
     await engine.sync()
-    drive.add(drive.find('Plume')!.id, 'Cours.pdf', new TextEncoder().encode('%PDF-1.4 pas un fichier Plume'))
-    const nb = await createNotebook(ROOT, 'Cours', 'grid', 'portrait')
+    drive.add(drive.find('Plume')!.id, 'Course.pdf', new TextEncoder().encode('%PDF-1.4 not a Plume file'))
+    const nb = await createNotebook(ROOT, 'Course', 'grid', 'portrait')
     await write(nb, 1)
     await engine.sync()
-    expect(drive.tree()).toEqual(['Plume/', 'Plume/Cours (2).pdf', 'Plume/Cours.pdf'])
-    expect(new TextDecoder().decode(drive.find('Plume/Cours.pdf')!.content!)).toContain('pas un fichier Plume')
-    expect((await byName('Cours')).foreign).toBe(true)
-    expect(await remoteStrokes('Plume/Cours (2).pdf')).toBe(1)
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Course (2).pdf', 'Plume/Course.pdf'])
+    expect(new TextDecoder().decode(drive.find('Plume/Course.pdf')!.content!)).toContain('not a Plume file')
+    expect((await byName('Course')).foreign).toBe(true)
+    expect(await remoteStrokes('Plume/Course (2).pdf')).toBe(1)
   })
 
-  it('un dossier du même nom déjà présent sur OneDrive est réutilisé', async () => {
+  it('a folder with the same name already on OneDrive is reused', async () => {
     await engine.sync()
     drive.add(drive.find('Plume')!.id, 'Maths')
     await freshDevice()
     const f = await createFolder(ROOT, 'Maths')
-    await createNotebook(f.id, 'Cours', 'grid', 'portrait')
+    await createNotebook(f.id, 'Course', 'grid', 'portrait')
     await engine.sync()
-    expect(drive.tree()).toEqual(['Plume/', 'Plume/Maths/', 'Plume/Maths/Cours.pdf'])
-    expect(await local()).toEqual(['Maths/', 'Maths/Cours.pdf'])
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Maths/', 'Plume/Maths/Course.pdf'])
+    expect(await local()).toEqual(['Maths/', 'Maths/Course.pdf'])
   })
 
-  it('bloc-notes ouvert et non modifié : la version plus récente de OneDrive le remplace', async () => {
-    const nb = await createNotebook(ROOT, 'Cours', 'grid', 'portrait')
+  it('notebook open and unmodified: the newer OneDrive version replaces it', async () => {
+    const nb = await createNotebook(ROOT, 'Course', 'grid', 'portrait')
     await engine.sync()
     openId = nb.id
     const replaced: string[] = []
     engine.subscribe((e) => e.type === 'replaced' && replaced.push(e.notebookId))
-    const other = await buildNotebookPdf({ name: 'Cours', bg: 'lined', orient: 'portrait', pages: [{ id: 'x', bg: 'lined', orient: 'portrait', rev: 0, strokes: [letter('x', 100, 100, 0, rand)] }] })
-    drive.replace(drive.find('Plume/Cours.pdf')!, other)
+    const other = await buildNotebookPdf({ name: 'Course', bg: 'lined', orient: 'portrait', pages: [{ id: 'x', bg: 'lined', orient: 'portrait', rev: 0, strokes: [letter('x', 100, 100, 0, rand)] }] })
+    drive.replace(drive.find('Plume/Course.pdf')!, other)
     await engine.sync()
     expect(replaced).toEqual([nb.id])
     expect(await strokeCount(nb)).toBe(1)
     expect((await getPages(nb.id))[0].bg).toBe('lined')
   })
 
-  it('signale une connexion requise ou une configuration absente', async () => {
+  it('reports a required sign-in or a missing configuration', async () => {
     auth = 'disabled'
     await engine.sync()
     expect(engine.status.state).toBe('disabled')
@@ -324,11 +324,11 @@ async function getNodeByKept(id: string): Promise<LibNode> {
   return (await allNodes()).find((n) => n.id === id)!
 }
 
-describe('stockage local', () => {
-  it('chaque trait enregistré survit à un arrêt brutal de l’application', async () => {
-    const nb = await createNotebook(ROOT, 'Cours', 'grid', 'portrait')
+describe('local storage', () => {
+  it('every saved stroke survives an abrupt stop of the application', async () => {
+    const nb = await createNotebook(ROOT, 'Course', 'grid', 'portrait')
     await write(nb, 4)
-    await closeDb() // l'application est tuée ; le stockage du navigateur, lui, persiste
+    await closeDb() // the application is killed; the browser storage persists
     expect(await strokeCount(nb)).toBe(4)
     const again = (await allNodes())[0]
     expect([again.rev, again.uploadedRev]).toEqual([4, -1])

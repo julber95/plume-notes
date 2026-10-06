@@ -1,4 +1,4 @@
-// Accès au worker PDF depuis le fil principal.
+// Access to the PDF worker from the main thread.
 
 import type { BuiltPdf } from './fromDb'
 import type { NotebookData } from './codec'
@@ -21,7 +21,7 @@ function call<T>(body: Body, transfer: Transferable[] = []): Promise<T> {
       else p.resolve(e.data.result)
     }
     worker.onerror = (e) => {
-      for (const p of pending.values()) p.reject(new Error(e.message || 'Erreur du worker PDF'))
+      for (const p of pending.values()) p.reject(new Error(e.message || 'PDF worker error'))
       pending.clear()
       worker = null
     }

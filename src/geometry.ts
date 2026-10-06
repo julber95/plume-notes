@@ -1,12 +1,12 @@
-// Géométrie des traits : contour du stylo, simplification, test de contact et
-// gomme partielle. Sans dépendance au DOM (utilisé aussi par l'export PDF).
+// Stroke geometry: pen outline, simplification, hit testing and partial
+// erasing. No DOM dependency (also used by the PDF export).
 
 import { getStroke } from 'perfect-freehand'
 import type { Stroke } from './model'
 
 export type BBox = [number, number, number, number]
 
-/** Ramer–Douglas–Peucker sur une polyligne plate [x0, y0, x1, y1, …]. */
+/** Ramer–Douglas–Peucker on a flat polyline [x0, y0, x1, y1, …]. */
 export function simplify(flat: ArrayLike<number>, tol: number): number[] {
   const n = flat.length / 2
   if (n <= 2) return Array.from(flat)
@@ -49,17 +49,17 @@ export function simplify(flat: ArrayLike<number>, tol: number): number[] {
 }
 
 /**
- * La bibliothèque de tracé raisonne en pixels d'écran (elle ignore par exemple
- * les 3 dernières unités d'un trait). Nos coordonnées sont en points de page,
- * bien plus grands : on les agrandit donc avant le calcul, sinon la fin de
- * chaque trait devient un segment droit d'un millimètre.
+ * The stroke library thinks in screen pixels (for instance it ignores the last
+ * 3 units of a stroke). Our coordinates are in page points, which are much
+ * larger, so we scale them up before the computation; otherwise the end of
+ * every stroke becomes a straight segment one millimetre long.
  */
 const UNIT = 12
 
 /**
- * Polygone de contrôle (plat) du contour d'un trait de stylo sensible à la
- * pression. À dessiner arrondi : voir `smoothClosed`. `complete` vaut false
- * pendant le tracé.
+ * Control polygon (flat) of the outline of a pressure-sensitive pen stroke.
+ * Meant to be drawn rounded: see `smoothClosed`. `complete` is false while
+ * the stroke is being drawn.
  */
 export function penOutline(pts: ArrayLike<number>, width: number, complete = true): number[] {
   const input: number[][] = []
@@ -81,9 +81,9 @@ export function penOutline(pts: ArrayLike<number>, width: number, complete = tru
 }
 
 /**
- * Arrondit un polygone fermé : chaque sommet devient le point de contrôle d'une
- * courbe passant par les milieux des côtés. Retourne la courbe sous forme de
- * polyligne assez fine pour que l'écart reste sous `tol`.
+ * Rounds a closed polygon: each vertex becomes the control point of a curve
+ * through the midpoints of the sides. Returns the curve as a polyline fine
+ * enough for the deviation to stay below `tol`.
  */
 export function smoothClosed(flat: ArrayLike<number>, tol = 0.02): number[] {
   const n = flat.length / 2
@@ -98,7 +98,7 @@ export function smoothClosed(flat: ArrayLike<number>, tol = 0.02): number[] {
     const j = (i + 1) % n
     const bx = (cx + flat[2 * j]) / 2
     const by = (cy + flat[2 * j + 1]) / 2
-    // Écart maximal entre la courbe et sa corde ; divisé par 4 à chaque doublement des segments.
+    // Maximum gap between the curve and its chord; divided by 4 each time the segments are doubled.
     const dev = Math.hypot(ax - 2 * cx + bx, ay - 2 * cy + by) / 4
     const steps = Math.min(8, Math.max(1, Math.ceil(Math.sqrt(dev / tol))))
     for (let k = 1; k <= steps; k++) {
@@ -112,7 +112,7 @@ export function smoothClosed(flat: ArrayLike<number>, tol = 0.02): number[] {
   return out
 }
 
-/** Ligne centrale [x, y, …] d'un trait à largeur constante (surligneur, trait droit). */
+/** Centreline [x, y, …] of a constant-width stroke (highlighter, straight line). */
 export function centerline(pts: ArrayLike<number>): number[] {
   const out: number[] = []
   for (let i = 0; i < pts.length; i += 3) out.push(pts[i], pts[i + 1])
@@ -146,7 +146,7 @@ function distToSegment2(px: number, py: number, ax: number, ay: number, bx: numb
   return cx * cx + cy * cy
 }
 
-/** Le disque (x, y, r) touche-t-il le trait ? */
+/** Does the disc (x, y, r) touch the stroke? */
 export function strokeHit(s: Pick<Stroke, 'pts' | 'width'>, x: number, y: number, r: number): boolean {
   const p = s.pts
   const reach = r + s.width / 2
@@ -163,9 +163,9 @@ export function strokeHit(s: Pick<Stroke, 'pts' | 'width'>, x: number, y: number
 }
 
 /**
- * Gomme partielle : retire du trait la partie couverte par le disque (x, y, r).
- * Retourne null si le trait n'est pas touché, sinon les morceaux restants
- * (éventuellement aucun).
+ * Partial eraser: removes from the stroke the part covered by the disc
+ * (x, y, r). Returns null if the stroke is not touched, otherwise the
+ * remaining pieces (possibly none).
  */
 export function eraseFromStroke(s: Pick<Stroke, 'pts' | 'width' | 'tool'>, x: number, y: number, r: number): Float32Array[] | null {
   if (!strokeHit(s, x, y, r)) return null
@@ -174,7 +174,7 @@ export function eraseFromStroke(s: Pick<Stroke, 'pts' | 'width' | 'tool'>, x: nu
   const cut2 = cut * cut
   const step = Math.max(0.4, r / 3)
 
-  // Rééchantillonne pour que la coupe soit nette même sur de longs segments.
+  // Resample so that the cut is clean even on long segments.
   const dense: number[] = [p[0], p[1], p[2]]
   for (let i = 3; i < p.length; i += 3) {
     const ax = p[i - 3]
@@ -213,7 +213,7 @@ export function eraseFromStroke(s: Pick<Stroke, 'pts' | 'width' | 'tool'>, x: nu
   return removed ? runs : null
 }
 
-/** Convertit « #rrggbb » en composantes 0..1. */
+/** Converts "#rrggbb" to 0..1 components. */
 export function hexToRgb(hex: string): [number, number, number] {
   const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex)
   if (!m) return [0, 0, 0]

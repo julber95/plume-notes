@@ -1,4 +1,4 @@
-// Petits outils d'interface : création d'éléments, boîtes de dialogue, messages.
+// Small interface helpers: element creation, dialogs, messages.
 
 type Child = Node | string | null | undefined | false
 
@@ -51,7 +51,7 @@ export function iconButton(icon: string, label: string, onClick: (e: MouseEvent)
   return h('button', { class: `icon-btn ${cls}`, type: 'button', title: label, 'aria-label': label, html: icon, onClick })
 }
 
-// ---------- Messages brefs ----------
+// ---------- Brief messages ----------
 
 let toastHost: HTMLElement | null = null
 
@@ -62,14 +62,14 @@ export function toast(text: string, ms = 3500): void {
   setTimeout(() => el.remove(), ms)
 }
 
-// ---------- Boîtes de dialogue ----------
+// ---------- Dialogs ----------
 
 export interface DialogHandle<T> {
   close(value: T | null): void
   root: HTMLDialogElement
 }
 
-/** Ouvre une boîte modale ; la promesse donne la valeur choisie, ou null si annulé. */
+/** Opens a modal dialog; the promise yields the chosen value, or null if cancelled. */
 export function openDialog<T>(title: string, build: (d: DialogHandle<T>) => Child | Child[], cls = ''): Promise<T | null> {
   return new Promise((resolve) => {
     let result: T | null = null
@@ -103,7 +103,7 @@ export function button(label: string, onClick: () => void, cls = ''): HTMLButton
   return h('button', { class: `btn ${cls}`, type: 'button', onClick }, label)
 }
 
-export function promptDialog(title: string, label: string, value = '', okLabel = 'Valider'): Promise<string | null> {
+export function promptDialog(title: string, label: string, value = '', okLabel = 'OK'): Promise<string | null> {
   return openDialog<string>(title, (d) => {
     const input = h('input', { type: 'text', value, maxLength: 120, autocomplete: 'off', enterKeyHint: 'done' })
     const submit = () => {
@@ -119,7 +119,7 @@ export function promptDialog(title: string, label: string, value = '', okLabel =
         },
       },
       h('label', { class: 'field' }, h('span', {}, label), input),
-      dialogButtons(button('Annuler', () => d.close(null)), h('button', { class: 'btn primary', type: 'submit' }, okLabel)),
+      dialogButtons(button('Cancel', () => d.close(null)), h('button', { class: 'btn primary', type: 'submit' }, okLabel)),
     )
     setTimeout(() => {
       input.focus()
@@ -132,12 +132,12 @@ export function promptDialog(title: string, label: string, value = '', okLabel =
 export async function confirmDialog(title: string, text: string, okLabel: string, danger = false): Promise<boolean> {
   const r = await openDialog<boolean>(title, (d) => [
     h('p', { class: 'dialog-text' }, text),
-    dialogButtons(button('Annuler', () => d.close(null)), button(okLabel, () => d.close(true), danger ? 'danger' : 'primary')),
+    dialogButtons(button('Cancel', () => d.close(null)), button(okLabel, () => d.close(true), danger ? 'danger' : 'primary')),
   ])
   return r === true
 }
 
-// ---------- Menus contextuels ----------
+// ---------- Context menus ----------
 
 export interface MenuItem {
   label: string
@@ -180,7 +180,7 @@ export function closePopovers(): void {
   popoverAnchor = null
 }
 
-/** Affiche `panel` sous `anchor` ; un second appel sur la même ancre le referme. */
+/** Shows `panel` below `anchor`; a second call on the same anchor closes it. */
 export function showPopover(anchor: HTMLElement, panel: HTMLElement): boolean {
   if (popoverAnchor === anchor) {
     closePopovers()
