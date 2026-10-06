@@ -3,7 +3,7 @@
 // Identifiant client de l'application enregistrée chez Microsoft (voir
 // docs/GUIDE.md, étape 1). Tant qu'il est vide, Plume fonctionne uniquement en
 // local, sans synchronisation OneDrive. Ce n'est pas un secret.
-const CLIENT_ID = ''
+const CLIENT_ID = '3d29f457-e421-4a20-a180-d8b5c86dda7d'
 
 // (La variable VITE_MS_CLIENT_ID ne sert qu'aux tests automatisés.)
 export const MS_CLIENT_ID: string = CLIENT_ID || import.meta.env.VITE_MS_CLIENT_ID || ''
