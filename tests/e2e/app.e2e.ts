@@ -319,6 +319,7 @@ describe('Plume in the browser', () => {
     await page.getByRole('button', { name: 'Create' }).click()
     await page.locator('canvas.ink').waitFor()
     const cdp = await ctx.newCDPSession(page)
+    await settle(page) // let the freshly opened page finish loading
     await pen(cdp, scribble(150, 300, 400))
     await settle(page)
     expect(await strokeCount(page)).toBe(1)

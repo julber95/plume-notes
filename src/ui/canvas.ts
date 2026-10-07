@@ -52,7 +52,7 @@ interface PageView {
 }
 
 type Action =
-  | { type: 'draw'; pointerId: number; pv: PageView; kind: 'pen' | 'highlighter' | 'line'; pts: number[]; tail: number[]; predicted: number[] }
+  | { type: 'draw'; pointerId: number; pv: PageView; kind: 'pen' | 'highlighter' | 'line'; pts: number[]; tail: number[]; predicted: number[]; raw: boolean }
   | { type: 'erase'; pointerId: number; lastX: number; lastY: number; removed: Map<string, Stroke>; added: Map<string, RStroke> }
   | { type: 'pan'; pointerId: number; lastX: number; lastY: number }
   | { type: 'tapAdd'; pointerId: number }
@@ -132,6 +132,11 @@ export class InkCanvas {
   private moving = false
   /** Area of a page to redraw (eraser, highlighter, undo), rather than the whole screen. */
   private dirty: { pv: PageView; box: BBox } | null = null
+  /** Screen area (device pixels) covered by the stroke in progress at its last drawing. */
+  private liveBox: BBox | null = null
+  /** When the stroke in progress was last drawn, and how long that took (ms). */
+  private liveAt = 0
+  private liveCost = 0
   private settleTimer = 0
   private idleTimer = 0
   private lastSeq = 0
@@ -166,6 +171,9 @@ export class InkCanvas {
     const f = this.front
     f.addEventListener('pointerdown', this.onDown)
     f.addEventListener('pointermove', this.onMove)
+    // Raw stylus positions, delivered as soon as they arrive instead of once per
+    // screen frame (not available in every browser).
+    f.addEventListener('pointerrawupdate', this.onRaw as EventListener)
     f.addEventListener('pointerup', this.onUp)
     f.addEventListener('pointercancel', this.onCancel)
     f.addEventListener('pointerleave', this.onLeave)
@@ -344,6 +352,9 @@ export class InkCanvas {
       } else if (this.dirty) {
         this.renderRegion(this.dirty.pv, this.dirty.box)
         this.dirty = null
+      } else if (this.canDrawLiveOnly()) {
+        // Only the stroke in progress changed: no need to repaint the screen.
+        return this.drawLiveNow()
       }
       this.present()
       if (DEBUG) performance.measure(scene ? 'plume-scene' : 'plume-live', { start: t0 })
@@ -607,21 +618,7 @@ export class InkCanvas {
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.drawImage(this.back, 0, 0)
     const a = this.action
-    if (a?.type === 'draw') {
-      const tool = a.kind === 'highlighter' ? this.tool.highlighter : this.tool.pen
-      const pts = a.kind === 'line' ? a.pts.slice(0, 3).concat(a.tail) : a.pts.concat(a.tail, a.predicted)
-      const live = { tool: a.kind, color: tool.color, width: tool.width }
-      const path = strokePath(a.kind, pts, tool.width, false)
-      this.pageTransform(ctx, a.pv)
-      ctx.save()
-      ctx.beginPath()
-      ctx.rect(0, 0, a.pv.w, a.pv.h)
-      ctx.clip()
-      ctx.lineCap = 'round'
-      ctx.lineJoin = 'round'
-      this.paint(ctx, live, path)
-      ctx.restore()
-    }
+    this.liveBox = a?.type === 'draw' ? this.paintLive(a) : null
     const showEraser = a?.type === 'erase' || (this.tool.kind === 'eraser' && this.hover && !a)
     const at = a?.type === 'erase' ? { x: a.lastX, y: a.lastY } : this.hover
     if (showEraser && at) {
@@ -634,6 +631,107 @@ export class InkCanvas {
       ctx.lineWidth = 1
       ctx.stroke()
     }
+  }
+
+  /** Draws the stroke in progress on the screen; returns the area it covers (device pixels). */
+  private paintLive(a: Extract<Action, { type: 'draw' }>): BBox {
+    const ctx = this.fctx
+    const tool = a.kind === 'highlighter' ? this.tool.highlighter : this.tool.pen
+    const pts = a.kind === 'line' ? a.pts.slice(0, 3).concat(a.tail) : a.pts.concat(a.tail, a.predicted)
+    const path = strokePath(a.kind, pts, tool.width, false)
+    this.pageTransform(ctx, a.pv)
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(0, 0, a.pv.w, a.pv.h)
+    ctx.clip()
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    this.paint(ctx, { tool: a.kind, color: tool.color, width: tool.width }, path)
+    ctx.restore()
+
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (let i = 0; i < pts.length; i += 3) {
+      if (pts[i] < x0) x0 = pts[i]
+      if (pts[i] > x1) x1 = pts[i]
+      if (pts[i + 1] < y0) y0 = pts[i + 1]
+      if (pts[i + 1] > y1) y1 = pts[i + 1]
+    }
+    const s = this.zoom * this.dpr
+    const pad = tool.width * s + 3
+    const ox = (this.tx + a.pv.x * this.zoom) * this.dpr
+    const oy = (this.ty + a.pv.y * this.zoom) * this.dpr
+    return [Math.floor(x0 * s + ox - pad), Math.floor(y0 * s + oy - pad), Math.ceil(x1 * s + ox + pad), Math.ceil(y1 * s + oy + pad)]
+  }
+
+  /** Can the stroke in progress be redrawn alone, without touching the rest of the screen? */
+  private canDrawLiveOnly(): boolean {
+    return this.action?.type === 'draw' && !this.sceneDirty && !this.dirty && !!this.liveBox
+  }
+
+  /**
+   * Fast path while writing: redraws the stroke in progress immediately,
+   * without waiting for the next frame. If the device cannot keep up with one
+   * drawing per stylus event, falls back to one drawing per frame so that
+   * work never piles up.
+   */
+  private drawLive(): void {
+    if (!this.canDrawLiveOnly() || this.frame) return this.schedule()
+    if (performance.now() - this.liveAt < Math.max(1.5, this.liveCost * 3)) return this.schedule()
+    this.drawLiveNow()
+  }
+
+  /** Redraws only the small screen area covered by the stroke in progress. */
+  private drawLiveNow(): void {
+    const a = this.action
+    if (a?.type !== 'draw' || !this.liveBox) return
+    const t0 = performance.now()
+    const b = this.liveBox
+    const x = Math.max(0, b[0])
+    const y = Math.max(0, b[1])
+    const w = Math.min(this.back.width, b[2]) - x
+    const h = Math.min(this.back.height, b[3]) - y
+    const ctx = this.fctx
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    if (w > 0 && h > 0) ctx.drawImage(this.back, x, y, w, h, x, y, w, h)
+    this.liveBox = this.paintLive(a)
+    this.liveAt = performance.now()
+    this.liveCost = this.liveCost * 0.7 + (this.liveAt - t0) * 0.3
+    if (DEBUG) performance.measure('plume-live', { start: t0 })
+  }
+
+  private addDrawPoints(a: Extract<Action, { type: 'draw' }>, e: PointerEvent): void {
+    const events = e.getCoalescedEvents?.() ?? []
+    if (!events.length) events.push(e)
+    const mouse = e.pointerType === 'mouse'
+    // Keep roughly one point every 2/3 of a screen pixel: dense enough for
+    // round curves, even on small letters.
+    const minDist = Math.min(0.25, 0.65 / this.zoom)
+    for (const ev of events) {
+      const w = this.world(ev)
+      const x = w.x - a.pv.x
+      const y = w.y - a.pv.y
+      const p = mouse ? 0.5 : ev.pressure || 0.5
+      const n = a.pts.length
+      if (a.kind !== 'line' && Math.hypot(x - a.pts[n - 3], y - a.pts[n - 2]) >= minDist) {
+        a.pts.push(x, y, p)
+        a.tail = []
+      } else {
+        // Too close to the last point (or straight line): just a provisional end.
+        a.tail = [x, y, p]
+      }
+    }
+  }
+
+  private onRaw = (e: PointerEvent): void => {
+    const a = this.action
+    if (a?.type !== 'draw' || a.pointerId !== e.pointerId) return
+    a.raw = true
+    this.addDrawPoints(a, e)
+    a.predicted = []
+    this.drawLive()
   }
 
   // ---------- Input: stylus and mouse ----------
@@ -679,7 +777,7 @@ export class InkCanvas {
     }
     if (!pv.strokes) return
     const p = mouse ? 0.5 : e.pressure || 0.5
-    this.action = { type: 'draw', pointerId: e.pointerId, pv, kind, pts: [w.x - pv.x, w.y - pv.y, p], tail: [], predicted: [] }
+    this.action = { type: 'draw', pointerId: e.pointerId, pv, kind, pts: [w.x - pv.x, w.y - pv.y, p], tail: [], predicted: [], raw: false }
     this.schedule()
   }
 
@@ -721,32 +819,17 @@ export class InkCanvas {
       this.schedule()
       return
     }
-    const mouse = e.pointerType === 'mouse'
-    // Keep roughly one point every 2/3 of a screen pixel: dense enough for
-    // round curves, even on small letters.
-    const minDist = Math.min(0.25, 0.65 / this.zoom)
-    for (const ev of events) {
-      const w = this.world(ev)
-      const x = w.x - a.pv.x
-      const y = w.y - a.pv.y
-      const p = mouse ? 0.5 : ev.pressure || 0.5
-      const n = a.pts.length
-      if (a.kind !== 'line' && Math.hypot(x - a.pts[n - 3], y - a.pts[n - 2]) >= minDist) {
-        a.pts.push(x, y, p)
-        a.tail = []
-      } else {
-        // Too close to the last point (or straight line): just a provisional end.
-        a.tail = [x, y, p]
-      }
-    }
+    // When raw updates are available the points were already recorded there.
+    if (!a.raw) this.addDrawPoints(a, e)
     a.predicted = []
     if (a.kind !== 'line') {
+      const mouse = e.pointerType === 'mouse'
       for (const ev of e.getPredictedEvents?.() ?? []) {
         const w = this.world(ev)
         a.predicted.push(w.x - a.pv.x, w.y - a.pv.y, mouse ? 0.5 : ev.pressure || 0.5)
       }
     }
-    this.schedule()
+    this.drawLive()
   }
 
   private onUp = (e: PointerEvent): void => {

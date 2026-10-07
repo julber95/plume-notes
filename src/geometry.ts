@@ -70,7 +70,9 @@ export function penOutline(pts: ArrayLike<number>, width: number, complete = tru
     smoothing: 0.5,
     streamline: 0.4,
     simulatePressure: false,
-    last: complete,
+    // Always end exactly on the last point: while drawing, the tip of the
+    // stroke must sit under the stylus rather than trail behind it.
+    last: true,
   })
   const flat: number[] = new Array(outline.length * 2)
   for (let i = 0; i < outline.length; i++) {
