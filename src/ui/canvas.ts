@@ -5,7 +5,7 @@
 // the stroke in progress is recomputed on each frame.
 
 import { backgroundSpec, type BgSpec } from '../backgrounds'
-import { HIGHLIGHTER_ALPHA, centerline, eraseFromStroke, penOutline, strokeBBox, strokeHit, type BBox } from '../geometry'
+import { HIGHLIGHTER_ALPHA, centerline, eraseFromStroke, isScribble, penOutline, scribbleTargets, strokeBBox, strokeHit, type BBox } from '../geometry'
 import { pageSize, uid, type Page, type Stroke } from '../model'
 
 export type ToolKind = 'pen' | 'highlighter' | 'eraser' | 'line'
@@ -13,6 +13,8 @@ export type ToolKind = 'pen' | 'highlighter' | 'eraser' | 'line'
 export interface ToolState {
   kind: ToolKind
   pen: { color: string; width: number }
+  /** Scribbling over existing ink with the pen erases it. */
+  scribbleErase: boolean
   highlighter: { color: string; width: number }
   eraser: { mode: 'stroke' | 'partial'; size: number }
 }
@@ -879,6 +881,19 @@ export class InkCanvas {
     this.lastSeq = Math.max(this.lastSeq + 1, Date.now())
     const stroke: Stroke = { id: uid(), pageId: a.pv.page.id, seq: this.lastSeq, tool: a.kind, color: tool.color, width: tool.width, pts: Float32Array.from(pts) }
     const rs = toR(stroke)
+    if (a.kind === 'pen' && this.tool.scribbleErase && isScribble(stroke.pts)) {
+      const targets = scribbleTargets(stroke, a.pv.strokes!)
+      if (targets.length) {
+        // A scribble over existing ink: erase what it covers, and do not keep it.
+        const gone = new Set(targets.map((t) => t.id))
+        a.pv.strokes = a.pv.strokes!.filter((s) => !gone.has(s.id))
+        let box = rs.bbox
+        for (const t of targets) box = [Math.min(box[0], t.bbox[0]), Math.min(box[1], t.bbox[1]), Math.max(box[2], t.bbox[2]), Math.max(box[3], t.bbox[3])]
+        this.markDirty(a.pv, box)
+        this.host.onChange({ added: [], removed: targets.map(({ bbox: _b, path: _p, ...s }) => s) })
+        return
+      }
+    }
     a.pv.strokes!.push(rs)
     if (a.kind === 'highlighter') {
       // The highlighter goes under the ink: the touched area is redrawn.

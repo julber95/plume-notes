@@ -30,6 +30,7 @@ const ERASER_SIZES = [6, 12, 24]
 const DEFAULT_TOOL: ToolState = {
   kind: 'pen',
   pen: { color: PEN_COLORS[0], width: PEN_WIDTHS[1] },
+  scribbleErase: true,
   highlighter: { color: HL_COLORS[0], width: HL_WIDTHS[1] },
   eraser: { mode: 'stroke', size: ERASER_SIZES[1] },
 }
@@ -247,6 +248,23 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
           t.width = v
           saveTool()
         }),
+        ...(kind === 'pen'
+          ? [
+              h(
+                'label',
+                { class: 'check' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: tool.scribbleErase,
+                  onChange: (e: Event) => {
+                    tool.scribbleErase = (e.target as HTMLInputElement).checked
+                    saveTool()
+                  },
+                }),
+                h('span', {}, 'Scribble over ink to erase it'),
+              ),
+            ]
+          : []),
       ]
     }
     box.append(...content())

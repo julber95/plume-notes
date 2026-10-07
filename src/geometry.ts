@@ -223,3 +223,114 @@ export function hexToRgb(hex: string): [number, number, number] {
 }
 
 export const HIGHLIGHTER_ALPHA = 0.4
+
+// ---------- Scribble to erase ----------
+
+/** Spread of the points along a direction, and number of back-and-forth reversals along it. */
+function sweep(pts: ArrayLike<number>, ax: number, ay: number, slackRatio: number): { extent: number; reversals: number } {
+  let lo = Infinity
+  let hi = -Infinity
+  for (let i = 0; i < pts.length; i += 3) {
+    const t = pts[i] * ax + pts[i + 1] * ay
+    if (t < lo) lo = t
+    if (t > hi) hi = t
+  }
+  const extent = hi - lo
+  // Small wobbles do not count as a reversal.
+  const slack = Math.max(1.5, extent * slackRatio)
+  let reversals = 0
+  let dir = 0
+  let extreme = pts[0] * ax + pts[1] * ay
+  for (let i = 3; i < pts.length; i += 3) {
+    const t = pts[i] * ax + pts[i + 1] * ay
+    if (dir === 0) {
+      if (Math.abs(t - extreme) > slack) {
+        dir = t > extreme ? 1 : -1
+        extreme = t
+      }
+    } else if ((t - extreme) * dir > 0) {
+      extreme = t
+    } else if ((extreme - t) * dir > slack) {
+      reversals++
+      dir = -dir
+      extreme = t
+    }
+  }
+  return { extent, reversals }
+}
+
+/**
+ * Is this pen stroke a scribble, i.e. a tight back-and-forth zigzag?
+ *
+ * Two shapes are recognised. Going back and forth along the stroke's main
+ * direction (rubbing over a word) is unmistakable. A zigzag that advances
+ * sideways looks like writing "www", so it needs many more strokes to count.
+ */
+export function isScribble(pts: ArrayLike<number>): boolean {
+  const n = pts.length / 3
+  if (n < 12) return false
+  let mx = 0
+  let my = 0
+  let length = 0
+  for (let i = 0; i < pts.length; i += 3) {
+    mx += pts[i]
+    my += pts[i + 1]
+    if (i) length += Math.hypot(pts[i] - pts[i - 3], pts[i + 1] - pts[i - 2])
+  }
+  mx /= n
+  my /= n
+  // Main direction: principal axis of the points.
+  let sxx = 0
+  let sxy = 0
+  let syy = 0
+  for (let i = 0; i < pts.length; i += 3) {
+    const dx = pts[i] - mx
+    const dy = pts[i + 1] - my
+    sxx += dx * dx
+    sxy += dx * dy
+    syy += dy * dy
+  }
+  const angle = 0.5 * Math.atan2(2 * sxy, sxx - syy)
+  const ax = Math.cos(angle)
+  const ay = Math.sin(angle)
+
+  const main = sweep(pts, ax, ay, 0.25)
+  if (main.extent < 5 || length < main.extent * 3) return false
+  if (main.reversals >= 4) return true
+  const across = sweep(pts, -ay, ax, 0.4)
+  return across.extent >= 4 && across.reversals >= 7
+}
+
+/**
+ * Among `strokes`, those a scribble is meant to erase: the scribble crosses
+ * them and covers most of them. A long stroke merely crossed at one end is
+ * left alone.
+ */
+export function scribbleTargets<T extends Pick<Stroke, 'pts' | 'width'> & { bbox: BBox }>(scribble: Pick<Stroke, 'pts' | 'width'>, strokes: T[]): T[] {
+  const box = strokeBBox(scribble)
+  const pad = 2
+  const out: T[] = []
+  for (const s of strokes) {
+    const b = s.bbox
+    if (b[2] < box[0] || b[0] > box[2] || b[3] < box[1] || b[1] > box[3]) continue
+    // Sample the stroke regularly (a straight line only stores its two ends).
+    const p = s.pts
+    let total = 0
+    let inside = 0
+    let touched = false
+    const visit = (x: number, y: number) => {
+      total++
+      if (x < box[0] - pad || x > box[2] + pad || y < box[1] - pad || y > box[3] + pad) return
+      inside++
+      if (!touched && strokeHit(scribble, x, y, s.width / 2 + 0.5)) touched = true
+    }
+    visit(p[0], p[1])
+    for (let i = 3; i < p.length; i += 3) {
+      const d = Math.hypot(p[i] - p[i - 3], p[i + 1] - p[i - 2])
+      const steps = Math.max(1, Math.ceil(d / 1.5))
+      for (let k = 1; k <= steps; k++) visit(p[i - 3] + ((p[i] - p[i - 3]) * k) / steps, p[i - 2] + ((p[i + 1] - p[i - 2]) * k) / steps)
+    }
+    if (touched && inside >= total * 0.6) out.push(s)
+  }
+  return out
+}

@@ -17,6 +17,8 @@ recent browser on a computer.
   backgrounds.
 - Pressure-sensitive pen, highlighter (under the ink), eraser (whole stroke
   or precise), straight line, undo / redo.
+- Scribble to erase: scribbling over existing ink with the pen deletes it
+  (can be switched off in the pen settings).
 - Page management: add, duplicate, move, delete, change the background.
 - Palm rejection; scroll and zoom with fingers; mouse on a computer.
 - Every stroke saved locally at once; works offline.

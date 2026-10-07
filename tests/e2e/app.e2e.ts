@@ -345,4 +345,49 @@ describe('Plume in the browser', () => {
     expect(overflow).toBe(0)
     await phone.ctx.close()
   })
+
+  it('erases what a scribble covers, and only treats it as a scribble over ink', async () => {
+    const tab = await device()
+    const { page, cdp } = tab
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('canvas.ink').waitFor()
+    await settle(page)
+    /** Rubbing back and forth between x0 and x1. */
+    const rub = (x0: number, x1: number, y: number): Pt[] => {
+      const pts: Pt[] = []
+      for (let pass = 0; pass < 6; pass++) for (let i = 0; i <= 25; i++) pts.push([pass % 2 ? x1 - ((x1 - x0) * i) / 25 : x0 + ((x1 - x0) * i) / 25, y + pass * 1.5, 0.4])
+      return pts
+    }
+    // A short "word" of three strokes, and a separate one further down.
+    for (let i = 0; i < 3; i++) await pen(cdp, scribble(340 + i * 30, 200, 22, i))
+    await pen(cdp, scribble(340, 400, 80))
+    await settle(page)
+    expect(await strokeCount(page)).toBe(4)
+
+    await pen(cdp, rub(332, 432, 196))
+    await settle(page)
+    expect(await strokeCount(page)).toBe(1) // the word is gone, the scribble was not kept
+    await shot(page, '12-after-scribble')
+
+    await page.getByRole('button', { name: 'Undo' }).click()
+    await settle(page)
+    expect(await strokeCount(page)).toBe(4)
+
+    // The same gesture on blank paper is ordinary ink.
+    await pen(cdp, rub(700, 800, 600))
+    await settle(page)
+    expect(await strokeCount(page)).toBe(5)
+
+    // Switched off in the pen settings: a scribble over ink is kept as ink.
+    await page.getByRole('button', { name: 'Pen', exact: true }).click()
+    await page.getByLabel('Scribble over ink to erase it').uncheck()
+    await page.locator('.editor-title').click()
+    await pen(cdp, rub(332, 432, 196))
+    await settle(page)
+    expect(await strokeCount(page)).toBe(6)
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
+  })
 })
+
