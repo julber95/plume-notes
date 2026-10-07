@@ -389,5 +389,68 @@ describe('Plume in the browser', () => {
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
   })
+
+  it('turns a stroke into a clean shape when the pen is held still at the end', async () => {
+    const tab = await device()
+    const { page, cdp } = tab
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('canvas.ink').waitFor()
+    await settle(page)
+    const strokes = () =>
+      page.evaluate(
+        () =>
+          new Promise<{ tool: string; points: number; xy: number[] }[]>((resolve) => {
+            const open = indexedDB.open('plume')
+            open.onsuccess = () => {
+              const req = open.result.transaction('strokes').objectStore('strokes').getAll()
+              req.onsuccess = () => {
+                open.result.close()
+                const list = (req.result as { tool: string; seq: number; pts: Float32Array }[]).sort((a, b) => a.seq - b.seq)
+                resolve(list.map((s) => ({ tool: s.tool, points: s.pts.length / 3, xy: Array.from(s.pts).filter((_, i) => i % 3 !== 2) })))
+              }
+            }
+          }),
+      )
+    const release = (x: number, y: number) => cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, pointerType: 'pen' })
+    const wobble = (i: number) => Math.sin(i * 1.7) * 2.5
+    const along = (from: [number, number], to: [number, number], n = 30): Pt[] =>
+      Array.from({ length: n + 1 }, (_, i) => [from[0] + ((to[0] - from[0]) * i) / n + wobble(i), from[1] + ((to[1] - from[1]) * i) / n + wobble(i + 3), 0.4])
+
+    // A wobbly, nearly horizontal line, held at the end: a perfectly straight, level line.
+    await pen(cdp, along([340, 200], [640, 206]), { lift: false })
+    await page.waitForTimeout(700)
+    await shot(page, '13-shape-held')
+    await release(640, 206)
+    // The same line without holding: ordinary handwriting.
+    await pen(cdp, along([340, 300], [640, 306]))
+    // A rough rectangle, held at the end.
+    await pen(cdp, [...along([340, 400], [600, 404]), ...along([600, 404], [598, 540]), ...along([598, 540], [338, 536]), ...along([338, 536], [341, 402])], { lift: false })
+    await page.waitForTimeout(700)
+    await release(341, 402)
+    await settle(page)
+    await shot(page, '14-shapes')
+
+    const [line, free, rect] = await strokes()
+    expect([line.tool, line.points]).toEqual(['line', 2])
+    expect(line.xy[1]).toBe(line.xy[3]) // level
+    expect(free.tool).toBe('pen')
+    expect(free.points).toBeGreaterThan(20)
+    expect([rect.tool, rect.points]).toEqual(['line', 5])
+    expect([rect.xy[1], rect.xy[2]]).toEqual([rect.xy[3], rect.xy[4]]) // top side level, right side upright
+
+    // The precise eraser cuts a shape without flattening what remains.
+    await page.getByRole('button', { name: 'Eraser', exact: true }).click()
+    await page.getByRole('button', { name: 'Eraser', exact: true }).click()
+    await page.getByRole('button', { name: 'Precise' }).click()
+    await page.locator('.editor-title').click()
+    await pen(cdp, [[470, 390], [470, 415]])
+    await settle(page)
+    const after = await strokes()
+    expect(after.length).toBe(4)
+    expect(after.filter((s) => s.tool === 'line' && s.points > 2).length).toBeGreaterThan(0)
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
+  })
 })
 

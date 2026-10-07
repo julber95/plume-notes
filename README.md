@@ -19,13 +19,16 @@ recent browser on a computer.
   or precise), straight line, undo / redo.
 - Scribble to erase: scribbling over existing ink with the pen deletes it
   (can be switched off in the pen settings).
+- Clean shapes: hold the pen still at the end of a stroke and it becomes a
+  straight line, rectangle, square, triangle, circle, ellipse or smooth curve
+  (can be switched off in the pen settings).
 - Page management: add, duplicate, move, delete, change the background.
 - Palm rejection; scroll and zoom with fingers; mouse on a computer.
 - Every stroke saved locally at once; works offline.
 - Automatic PDF export to OneDrive, with a status indicator.
 - When a notebook is modified in two places, both versions are kept.
 
-Planned for version 2: shapes and axes, lasso, PDF and image import, page
+Planned for version 2: lasso, PDF and image import, page
 thumbnails, favourite pens.
 
 ## Development
@@ -46,6 +49,7 @@ npm run build      # production build in dist/
 | --- | --- |
 | `src/model.ts`, `src/db.ts` | Types and local storage (IndexedDB) |
 | `src/geometry.ts`, `src/backgrounds.ts` | Stroke shapes and backgrounds, shared by screen and PDF |
+| `src/shapes.ts` | Shape recognition (line, rectangle, ellipse, curve…) |
 | `src/pdf/` | Building and reading PDFs (in a worker) |
 | `src/sync/` | Microsoft sign-in, OneDrive client, sync engine |
 | `src/ui/` | Library, writing screen, drawing engine |

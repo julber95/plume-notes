@@ -7,6 +7,7 @@
 import { backgroundSpec, type BgSpec } from '../backgrounds'
 import { HIGHLIGHTER_ALPHA, centerline, eraseFromStroke, isScribble, penOutline, scribbleTargets, strokeBBox, strokeHit, type BBox } from '../geometry'
 import { pageSize, uid, type Page, type Stroke } from '../model'
+import { recognizeShape } from '../shapes'
 
 export type ToolKind = 'pen' | 'highlighter' | 'eraser' | 'line'
 
@@ -15,6 +16,8 @@ export interface ToolState {
   pen: { color: string; width: number }
   /** Scribbling over existing ink with the pen erases it. */
   scribbleErase: boolean
+  /** Holding the pen still at the end of a stroke turns it into a clean shape. */
+  shapeHold: boolean
   highlighter: { color: string; width: number }
   eraser: { mode: 'stroke' | 'partial'; size: number }
 }
@@ -54,7 +57,7 @@ interface PageView {
 }
 
 type Action =
-  | { type: 'draw'; pointerId: number; pv: PageView; kind: 'pen' | 'highlighter' | 'line'; pts: number[]; tail: number[]; predicted: number[]; raw: boolean }
+  | { type: 'draw'; pointerId: number; pv: PageView; kind: 'pen' | 'highlighter' | 'line'; pts: number[]; tail: number[]; predicted: number[]; raw: boolean; shape: number[] | null; holdX: number; holdY: number; holdTimer: number }
   | { type: 'erase'; pointerId: number; lastX: number; lastY: number; removed: Map<string, Stroke>; added: Map<string, RStroke> }
   | { type: 'pan'; pointerId: number; lastX: number; lastY: number }
   | { type: 'tapAdd'; pointerId: number }
@@ -65,6 +68,10 @@ const PAPER_BG = '#e7e9ed'
 const MAX_ZOOM = 8
 /** Maximum size of a page's cached image (pixels). */
 const CACHE_PIXELS = 5e6
+/** How long the pen must stay still at the end of a stroke to ask for a clean shape (ms). */
+const HOLD_MS = 450
+/** Smallest stroke (diagonal, in points; about 6 mm) that can become a shape. */
+const MIN_SHAPE_SIZE = 18
 
 /** Performance measurements, enabled by localStorage['plume.debug'] = '1'. */
 const DEBUG = (() => {
@@ -639,8 +646,9 @@ export class InkCanvas {
   private paintLive(a: Extract<Action, { type: 'draw' }>): BBox {
     const ctx = this.fctx
     const tool = a.kind === 'highlighter' ? this.tool.highlighter : this.tool.pen
-    const pts = a.kind === 'line' ? a.pts.slice(0, 3).concat(a.tail) : a.pts.concat(a.tail, a.predicted)
-    const path = strokePath(a.kind, pts, tool.width, false)
+    const kind = a.shape ? 'line' : a.kind
+    const pts = a.shape ?? (a.kind === 'line' ? a.pts.slice(0, 3).concat(a.tail) : a.pts.concat(a.tail, a.predicted))
+    const path = strokePath(kind, pts, tool.width, false)
     this.pageTransform(ctx, a.pv)
     ctx.save()
     ctx.beginPath()
@@ -648,7 +656,7 @@ export class InkCanvas {
     ctx.clip()
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
-    this.paint(ctx, { tool: a.kind, color: tool.color, width: tool.width }, path)
+    this.paint(ctx, { tool: kind, color: tool.color, width: tool.width }, path)
     ctx.restore()
 
     let x0 = Infinity
@@ -705,8 +713,20 @@ export class InkCanvas {
   }
 
   private addDrawPoints(a: Extract<Action, { type: 'draw' }>, e: PointerEvent): void {
+    // Once the stroke has become a shape, it no longer follows the pen.
+    if (a.shape) return
     const events = e.getCoalescedEvents?.() ?? []
     if (!events.length) events.push(e)
+    if (a.kind === 'pen' && this.tool.shapeHold) {
+      // The pen counts as still while it stays within a few screen pixels.
+      const w = this.world(e)
+      if (!a.holdTimer || Math.hypot(w.x - a.holdX, w.y - a.holdY) > 3 / this.zoom) {
+        a.holdX = w.x
+        a.holdY = w.y
+        clearTimeout(a.holdTimer)
+        a.holdTimer = window.setTimeout(() => this.snapToShape(a), HOLD_MS)
+      }
+    }
     const mouse = e.pointerType === 'mouse'
     // Keep roughly one point every 2/3 of a screen pixel: dense enough for
     // round curves, even on small letters.
@@ -725,6 +745,31 @@ export class InkCanvas {
         a.tail = [x, y, p]
       }
     }
+  }
+
+  /** The pen has been held still at the end of the stroke: replace it with its clean shape. */
+  private snapToShape(a: Extract<Action, { type: 'draw' }>): void {
+    if (this.action !== a || a.shape) return
+    // Small strokes are handwriting: a pause at the end of a letter must not
+    // turn it into a shape.
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (let i = 0; i < a.pts.length; i += 3) {
+      x0 = Math.min(x0, a.pts[i])
+      x1 = Math.max(x1, a.pts[i])
+      y0 = Math.min(y0, a.pts[i + 1])
+      y1 = Math.max(y1, a.pts[i + 1])
+    }
+    if (Math.hypot(x1 - x0, y1 - y0) < MIN_SHAPE_SIZE) return
+    const shape = recognizeShape(a.pts.concat(a.tail))
+    if (!shape) return
+    a.shape = []
+    for (let i = 0; i < shape.points.length; i += 2) a.shape.push(shape.points[i], shape.points[i + 1], 0.5)
+    a.predicted = []
+    navigator.vibrate?.(12)
+    this.drawLive()
   }
 
   private onRaw = (e: PointerEvent): void => {
@@ -779,7 +824,7 @@ export class InkCanvas {
     }
     if (!pv.strokes) return
     const p = mouse ? 0.5 : e.pressure || 0.5
-    this.action = { type: 'draw', pointerId: e.pointerId, pv, kind, pts: [w.x - pv.x, w.y - pv.y, p], tail: [], predicted: [], raw: false }
+    this.action = { type: 'draw', pointerId: e.pointerId, pv, kind, pts: [w.x - pv.x, w.y - pv.y, p], tail: [], predicted: [], raw: false, shape: null, holdX: w.x, holdY: w.y, holdTimer: 0 }
     this.schedule()
   }
 
@@ -824,7 +869,7 @@ export class InkCanvas {
     // When raw updates are available the points were already recorded there.
     if (!a.raw) this.addDrawPoints(a, e)
     a.predicted = []
-    if (a.kind !== 'line') {
+    if (a.kind !== 'line' && !a.shape) {
       const mouse = e.pointerType === 'mouse'
       for (const ev of e.getPredictedEvents?.() ?? []) {
         const w = this.world(ev)
@@ -874,7 +919,14 @@ export class InkCanvas {
   }
 
   private commitStroke(a: Extract<Action, { type: 'draw' }>): void {
-    const pts = a.kind === 'line' ? a.pts.slice(0, 3) : a.pts
+    clearTimeout(a.holdTimer)
+    if (a.shape) {
+      // Shapes are stored like the straight-line tool: a constant-width outline.
+      a.kind = 'line'
+      a.pts = a.shape
+      a.tail = []
+    }
+    const pts = a.kind === 'line' && !a.shape ? a.pts.slice(0, 3) : a.pts
     if (a.tail.length) pts.push(...a.tail)
     if (a.kind === 'line' && pts.length < 6) return
     const tool = a.kind === 'highlighter' ? this.tool.highlighter : this.tool.pen

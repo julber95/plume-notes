@@ -196,7 +196,8 @@ export function eraseFromStroke(s: Pick<Stroke, 'pts' | 'width' | 'tool'>, x: nu
   const flush = () => {
     const minPts = p.length === 3 ? 1 : 2
     if (run.length >= 3 * minPts) {
-      if (s.tool === 'line' && run.length > 6) run = [...run.slice(0, 3), ...run.slice(-3)]
+      // A plain straight line stays a two-point line (a shape keeps all its points).
+      if (s.tool === 'line' && p.length === 6 && run.length > 6) run = [...run.slice(0, 3), ...run.slice(-3)]
       runs.push(Float32Array.from(run))
     }
     run = []
