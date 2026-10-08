@@ -724,5 +724,63 @@ describe('Plume in the browser', () => {
     expect(pc.errors).toEqual([])
     await pc.ctx.close()
   })
+
+  it('shows page previews on the left to move around the notebook', async () => {
+    const tab = await device()
+    const { page, cdp } = tab
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('canvas.ink').waitFor()
+    await settle(page)
+    for (let l = 0; l < 3; l++) await pen(cdp, scribble(340, 200 + l * 40, 300, l))
+    // Three more pages, with something written on the last one.
+    await page.getByRole('button', { name: 'Pages' }).first().click()
+    for (let i = 0; i < 3; i++) await page.getByRole('button', { name: /Add a page after/ }).click()
+    await page.locator('.pages-panel').getByRole('button', { name: 'Close' }).click()
+    await expect.poll(() => page.locator('.page-pill').last().textContent()).toBe('4 / 4')
+    await pen(cdp, scribble(340, 300, 200, 7))
+    await settle(page)
+
+    const canvasWidth = async () => (await page.locator('canvas.ink').boundingBox())!.width
+    const full = await canvasWidth()
+    await page.getByRole('button', { name: 'Page previews' }).click()
+    await expect.poll(() => page.locator('.thumb').count()).toBe(4)
+    await expect.poll(() => page.locator('.thumb canvas').count(), { timeout: 10_000 }).toBe(4)
+    expect(await canvasWidth()).toBeLessThan(full - 100) // the page makes room for the panel
+    await expect.poll(() => page.locator('.thumb.current .thumb-number').textContent()).toBe('4')
+    await shot(page, '21-page-previews')
+
+    // The previews show what is written: page 1 has ink, page 2 is blank.
+    const inked = (index: number) =>
+      page.evaluate((i) => {
+        const c = document.querySelectorAll<HTMLCanvasElement>('.thumb canvas')[i]
+        const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data
+        let dark = 0
+        for (let k = 0; k < d.length; k += 4) if (d[k] < 110 && d[k + 1] < 110 && d[k + 2] < 110) dark++
+        return dark
+      }, index)
+    expect(await inked(0)).toBeGreaterThan(40)
+    expect(await inked(1)).toBe(0)
+
+    // A tap on a preview goes to that page.
+    await page.getByRole('button', { name: 'Go to page 1' }).click()
+    await expect.poll(() => page.locator('.page-pill').last().textContent()).toBe('1 / 4')
+    await expect.poll(() => page.locator('.thumb.current .thumb-number').textContent()).toBe('1')
+
+    // Writing on a page updates its preview.
+    await page.getByRole('button', { name: 'Go to page 2' }).click()
+    await settle(page, 400)
+    const box = (await page.locator('canvas.ink').boundingBox())!
+    await pen(cdp, scribble(box.x + 200, box.y + 250, 300, 3))
+    await expect.poll(() => inked(1), { timeout: 10_000 }).toBeGreaterThan(20)
+
+    // The panel stays open the next time, and can be closed.
+    await page.reload()
+    await page.locator('.thumb').first().waitFor()
+    await page.getByRole('button', { name: 'Page previews' }).click()
+    await expect.poll(() => page.locator('.thumbs').isHidden()).toBe(true)
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
+  })
 })
 

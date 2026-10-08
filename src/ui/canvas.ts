@@ -42,6 +42,8 @@ export interface InkHost {
   onSelection(rect: { x: number; y: number; w: number; h: number } | null): void
   /** A tap with the selection tool, at this screen position. */
   onLassoTap(x: number, y: number, canPaste: boolean): void
+  /** A picture of this page has finished decoding (its previews can be redrawn). */
+  onPictureReady(pageId: string): void
 }
 
 interface RStroke extends Stroke {
@@ -257,6 +259,8 @@ export class InkCanvas {
   private hidden: Set<string> | null = null
   private pasteTarget: { pv: PageView; x: number; y: number } | null = null
   private reported = ''
+  /** While a small preview is drawn: extra thickness (page units) so that fine ink stays visible. */
+  private boost = 0
   /** When the stroke in progress was last drawn, and how long that took (ms). */
   private liveAt = 0
   private liveCost = 0
@@ -408,6 +412,38 @@ export class InkCanvas {
   private inAddZone(wy: number): boolean {
     const last = this.pages[this.pages.length - 1]
     return !!last && wy > last.y + last.h + GAP / 2 && wy < last.y + last.h + GAP + ADD_ZONE
+  }
+
+  /**
+   * Small preview of a page, `width` CSS pixels wide (null if the page no
+   * longer exists).
+   */
+  async thumbnail(pageId: string, width: number): Promise<HTMLCanvasElement | null> {
+    let pv = this.pages.find((p) => p.page.id === pageId)
+    if (!pv) return null
+    if (!pv.strokes) {
+      const list = await this.host.loadStrokes(pageId)
+      // The page list may have changed while loading.
+      pv = this.pages.find((p) => p.page.id === pageId)
+      if (!pv) return null
+      if (!pv.strokes) {
+        pv.strokes = list.map(toR)
+        for (const s of list) if (s.seq > this.lastSeq) this.lastSeq = s.seq
+      }
+    }
+    const scale = (width * Math.min(window.devicePixelRatio || 1, 2)) / pv.w
+    const out = document.createElement('canvas')
+    out.width = Math.round(pv.w * scale)
+    out.height = Math.round(pv.h * scale)
+    const ctx = out.getContext('2d', { alpha: false })!
+    ctx.setTransform(scale, 0, 0, scale, 0, 0)
+    this.boost = 1.1 / scale
+    try {
+      this.drawPage(ctx, pv, scale, Infinity)
+    } finally {
+      this.boost = 0
+    }
+    return out
   }
 
   scrollToPage(index: number): void {
@@ -564,7 +600,10 @@ export class InkCanvas {
     ctx.beginPath()
     ctx.rect(0, 0, pv.w, pv.h)
     ctx.clip()
+    // In a small preview the ruling is toned down, or it would grey out the page.
+    if (this.boost) ctx.globalAlpha = 0.4
     this.drawBackground(ctx, pv, pixelScale)
+    ctx.globalAlpha = 1
     let complete = true
     if (pv.strokes) {
       ctx.lineCap = 'round'
@@ -709,6 +748,7 @@ export class InkCanvas {
           bitmaps.set(data, decoded)
           for (const pv of this.pages) pv.cacheValid = false
           this.invalidate()
+          this.host.onPictureReady(s.pageId)
         })
         .catch((e) => console.error('Picture decoding', e))
     }
@@ -719,6 +759,11 @@ export class InkCanvas {
     if (s.tool === 'pen') {
       ctx.fillStyle = s.color
       ctx.fill(path)
+      if (this.boost) {
+        ctx.strokeStyle = s.color
+        ctx.lineWidth = this.boost
+        ctx.stroke(path)
+      }
       return
     }
     if (s.tool === 'pencil') {
@@ -733,7 +778,7 @@ export class InkCanvas {
       return
     }
     ctx.strokeStyle = s.color
-    ctx.lineWidth = s.width
+    ctx.lineWidth = s.tool === 'line' ? s.width + this.boost : s.width
     if (s.tool === 'highlighter') {
       // Opaque, keeping the darker of paper and highlight: see highlightRgb.
       const [r, g, b] = highlightRgb(s.color)

@@ -860,6 +860,77 @@ button:focus-visible,
   background: #e7e9ed;
 }
 
+.thumbs {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 128px;
+  padding: 10px 8px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  overflow-y: auto;
+  background: #f1f2f5;
+  border-right: 1px solid var(--line);
+  z-index: 3;
+}
+
+.with-thumbs .stage {
+  left: 128px;
+}
+
+.thumb {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 5px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+}
+
+.thumb-page {
+  display: block;
+  width: 96px;
+  aspect-ratio: 595.28 / 841.89;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(20, 30, 50, 0.16);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.thumb-page.landscape {
+  aspect-ratio: 841.89 / 595.28;
+}
+
+.thumb-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.thumb-number {
+  min-width: 24px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.thumb.current .thumb-page {
+  box-shadow: 0 0 0 2.5px var(--accent);
+}
+
+.thumb.current .thumb-number {
+  background: var(--accent);
+  color: #fff;
+}
+
 canvas.ink {
   display: block;
   touch-action: none;
@@ -995,6 +1066,13 @@ canvas.ink {
 @media (max-width: 560px) {
   .editor-title {
     display: none;
+  }
+  /* Too narrow to sit beside the page: the previews slide over it. */
+  .with-thumbs .stage {
+    left: 0;
+  }
+  .thumbs {
+    box-shadow: var(--shadow);
   }
   .toolbar {
     gap: 0;

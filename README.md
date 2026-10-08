@@ -28,12 +28,14 @@ recent browser on a computer.
 - Pictures: insert an image on the page, then move, resize, duplicate or
   delete it like any selection; ink and highlighter go over it.
 - Page management: add, duplicate, move, delete, change the background.
+- Page previews: a panel on the left shows a thumbnail of every page; tap one
+  to go there.
 - Palm rejection; scroll and zoom with fingers; mouse on a computer.
 - Every stroke saved locally at once; works offline.
 - Automatic PDF export to OneDrive, with a status indicator.
 - When a notebook is modified in two places, both versions are kept.
 
-Planned for version 2: PDF import, page thumbnails, favourite pens.
+Planned for version 2: PDF import, favourite pens.
 
 ## Development
 

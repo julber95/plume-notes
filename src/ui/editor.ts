@@ -79,6 +79,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
       const add = added.filter((s) => s.pageId === pageId)
       const del = removed.filter((s) => s.pageId === pageId).map((s) => s.id)
       void enqueue(() => applyStrokeChange(notebookId, pageId, add, del))
+      refreshThumb(pageId)
     }
   }
 
@@ -92,6 +93,8 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   const quick = h('div', { class: 'quick' })
   const pageLabel = h('button', { class: 'page-pill', type: 'button', title: 'Pages', onClick: () => togglePanel() })
   const panel = h('aside', { class: 'pages-panel', hidden: true })
+  // Left panel: a small preview of each page, to move around the notebook.
+  const thumbs = h('nav', { class: 'thumbs', hidden: true, 'aria-label': 'Page previews' })
   // Floating bar of actions for the selection (or "Paste" after a tap).
   const selBar = h('div', { class: 'sel-bar', hidden: true })
 
@@ -132,6 +135,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     'header',
     { class: 'toolbar' },
     iconButton(icons.back, 'Back to library', () => void close()),
+    iconButton(icons.sidebar, 'Page previews', () => toggleThumbs()),
     title,
     h(
       'div',
@@ -159,7 +163,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     h('button', { class: 'page-pill', type: 'button', title: 'Fit to width', onClick: () => canvas.zoomBy('fit') }, 'Fit'),
     pageLabel,
   )
-  const view = h('div', { class: 'editor' }, toolbar, h('div', { class: 'editor-body' }, stage, corner, selBar, panel, picker))
+  const view = h('div', { class: 'editor' }, toolbar, h('div', { class: 'editor-body' }, thumbs, stage, corner, selBar, panel, picker))
   root.replaceChildren(view)
 
   const canvas = new InkCanvas(
@@ -176,7 +180,11 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
         persist(c.added, c.removed)
         refreshButtons()
       },
-      onViewChange: (i) => (pageLabel.textContent = `${i + 1} / ${pages.length}`),
+      onViewChange: (i) => {
+        pageLabel.textContent = `${i + 1} / ${pages.length}`
+        markCurrentThumb(i)
+      },
+      onPictureReady: (pageId) => refreshThumb(pageId),
       onAddPage: () => addPage(pages.length - 1),
       onSelection: (rect) => showSelectionBar(rect),
       onLassoTap: (x, y, canPaste) => showPasteBar(x, y, canPaste),
@@ -337,7 +345,8 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     const left = Math.max(6, Math.min(area.width - bar.width - 6, x + w / 2 - bar.width / 2))
     let top = y - bar.height - 14
     if (top < 6) top = Math.min(area.height - bar.height - 6, y + h + 14)
-    selBar.style.left = `${left}px`
+    // The writing area starts to the right of the page previews when they are open.
+    selBar.style.left = `${left + stage.offsetLeft}px`
     selBar.style.top = `${Math.max(6, top)}px`
   }
 
@@ -427,6 +436,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     if (scrollTo !== undefined) canvas.scrollToPage(scrollTo)
     pageLabel.textContent = `${canvas.currentPageIndex() + 1} / ${pages.length}`
     if (!panel.hidden) renderPanel()
+    if (!thumbs.hidden) renderThumbs()
   }
 
   function addPage(after: number): void {
@@ -480,6 +490,90 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     pages[index] = { ...page, bg }
     void enqueue(() => applyPageStructure(notebookId, { pageIds: pageIds(), putPages: [pages[index]] }))
     structureChanged()
+  }
+
+  // ---------- Page previews ----------
+
+  const THUMB_WIDTH = 96
+  /** Previews waiting to be drawn or redrawn, and those currently in view in the panel. */
+  const staleThumbs = new Set<string>()
+  const visibleThumbs = new Set<string>()
+  let thumbTimer = 0
+  let drawingThumbs = false
+  const thumbWatcher = new IntersectionObserver(
+    (entries) => {
+      for (const e of entries) {
+        const id = (e.target as HTMLElement).dataset.page!
+        if (e.isIntersecting) visibleThumbs.add(id)
+        else visibleThumbs.delete(id)
+      }
+      scheduleThumbs(0)
+    },
+    { root: thumbs, rootMargin: '200px 0px' },
+  )
+
+  function toggleThumbs(open = thumbs.hidden === true): void {
+    thumbs.hidden = !open
+    view.classList.toggle('with-thumbs', open)
+    void kvSet('thumbsOpen', open)
+    if (open) renderThumbs()
+  }
+
+  function renderThumbs(): void {
+    thumbWatcher.disconnect()
+    visibleThumbs.clear()
+    const current = canvas.currentPageIndex()
+    const previous = new Map([...thumbs.querySelectorAll<HTMLElement>('.thumb')].map((el) => [el.dataset.page!, el.querySelector('canvas')]))
+    thumbs.replaceChildren(
+      ...pages.map((p, i) => {
+        const frame = h('span', { class: `thumb-page ${p.orient === 'landscape' ? 'landscape' : ''}` })
+        // Keep the preview already drawn while the fresh one is prepared.
+        const kept = previous.get(p.id)
+        if (kept) frame.append(kept)
+        const el = h('button', { type: 'button', class: `thumb ${i === current ? 'current' : ''}`, 'data-page': p.id, 'aria-label': `Go to page ${i + 1}`, onClick: () => canvas.scrollToPage(i) }, frame, h('span', { class: 'thumb-number' }, String(i + 1)))
+        staleThumbs.add(p.id)
+        thumbWatcher.observe(el)
+        return el
+      }),
+    )
+  }
+
+  function markCurrentThumb(index: number): void {
+    if (thumbs.hidden) return
+    thumbs.querySelectorAll('.thumb').forEach((el, i) => {
+      el.classList.toggle('current', i === index)
+      if (i === index) el.scrollIntoView({ block: 'nearest' })
+    })
+  }
+
+  /** A page changed: its preview will be redrawn shortly (not at every stroke). */
+  function refreshThumb(pageId: string): void {
+    staleThumbs.add(pageId)
+    if (!thumbs.hidden) scheduleThumbs(700)
+  }
+
+  function scheduleThumbs(delay: number): void {
+    clearTimeout(thumbTimer)
+    thumbTimer = window.setTimeout(() => void drawThumbs(), delay)
+  }
+
+  async function drawThumbs(): Promise<void> {
+    if (drawingThumbs || thumbs.hidden) return
+    drawingThumbs = true
+    try {
+      for (;;) {
+        const id = [...staleThumbs].find((p) => visibleThumbs.has(p))
+        if (!id) break
+        staleThumbs.delete(id)
+        const frame = thumbs.querySelector<HTMLElement>(`.thumb[data-page="${id}"] .thumb-page`)
+        const preview = frame && (await canvas.thumbnail(id, THUMB_WIDTH))
+        if (frame && preview) frame.replaceChildren(preview)
+        // One at a time, leaving the hand free between two previews.
+        await new Promise((r) => setTimeout(r, 30))
+      }
+    } finally {
+      drawingThumbs = false
+    }
   }
 
   function togglePanel(): void {
@@ -544,6 +638,8 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   }
 
   refreshButtons()
+  // Page previews: closed at first (they take room from the page), then as left last time.
+  void kvGet<boolean>('thumbsOpen').then((open) => open && toggleThumbs(true))
 
   return {
     notebookId,
@@ -563,6 +659,8 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     },
     destroy() {
       window.removeEventListener('keydown', onKey)
+      thumbWatcher.disconnect()
+      clearTimeout(thumbTimer)
       closePopovers()
       canvas.destroy()
     },
