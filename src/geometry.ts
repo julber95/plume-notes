@@ -61,15 +61,12 @@ const UNIT = 12
  * Meant to be drawn rounded: see `smoothClosed`. `complete` is false while
  * the stroke is being drawn.
  */
-/** How much pressure changes the width: a pencil responds more than a pen. */
-export const THINNING = { pen: 0.5, pencil: 0.7 }
-
-export function penOutline(pts: ArrayLike<number>, width: number, complete = true, thinning = THINNING.pen): number[] {
+export function penOutline(pts: ArrayLike<number>, width: number, complete = true): number[] {
   const input: number[][] = []
   for (let i = 0; i < pts.length; i += 3) input.push([pts[i] * UNIT, pts[i + 1] * UNIT, pts[i + 2]])
   const outline = getStroke(input, {
     size: width * UNIT,
-    thinning,
+    thinning: 0.5,
     smoothing: 0.5,
     streamline: 0.4,
     simulatePressure: false,
@@ -226,7 +223,53 @@ export function hexToRgb(hex: string): [number, number, number] {
   return [parseInt(m[1], 16) / 255, parseInt(m[2], 16) / 255, parseInt(m[3], 16) / 255]
 }
 
-export const HIGHLIGHTER_ALPHA = 0.4
+/** How strongly the highlighter tints the paper. */
+const HIGHLIGHTER_STRENGTH = 0.4
+
+/**
+ * Colour actually laid down by a highlighter, as 0..1 components. It is
+ * painted opaque in "darken" mode (each pixel keeps the darker of the paper
+ * and the highlight), so going over the same spot twice with the same colour
+ * changes nothing: no darker bands where passes overlap. Ink stays readable
+ * through it and the page background shows through.
+ */
+export function highlightRgb(hex: string): [number, number, number] {
+  const [r, g, b] = hexToRgb(hex)
+  const mix = (c: number) => 1 - HIGHLIGHTER_STRENGTH + HIGHLIGHTER_STRENGTH * c
+  return [mix(r), mix(g), mix(b)]
+}
+
+/**
+ * Outline of a pencil stroke: like the pen, but responding more to pressure,
+ * tapering at both ends, and with a slightly rough edge.
+ */
+export function pencilOutline(pts: ArrayLike<number>, width: number): number[] {
+  const input: number[][] = []
+  for (let i = 0; i < pts.length; i += 3) input.push([pts[i] * UNIT, pts[i + 1] * UNIT, pts[i + 2]])
+  const outline = getStroke(input, {
+    size: width * UNIT,
+    thinning: 0.55,
+    smoothing: 0.5,
+    streamline: 0.4,
+    simulatePressure: false,
+    start: { taper: width * UNIT * 2.5 },
+    end: { taper: width * UNIT * 3.5 },
+    last: true,
+  })
+  const rough = width * 0.09
+  const flat: number[] = new Array(outline.length * 2)
+  for (let i = 0; i < outline.length; i++) {
+    const x = outline[i][0] / UNIT
+    const y = outline[i][1] / UNIT
+    // The roughness depends only on the position, so the edge does not
+    // shimmer while the stroke is being drawn.
+    let h = (Math.floor(x * 3) * 73856093) ^ (Math.floor(y * 3) * 19349663)
+    h = (h ^ (h >>> 13)) * 1274126177
+    flat[2 * i] = x + (((h >>> 8) & 255) / 255 - 0.5) * 2 * rough
+    flat[2 * i + 1] = y + (((h >>> 16) & 255) / 255 - 0.5) * 2 * rough
+  }
+  return flat
+}
 
 // ---------- Scribble to erase ----------
 

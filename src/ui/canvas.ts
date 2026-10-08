@@ -5,8 +5,8 @@
 // the stroke in progress is recomputed on each frame.
 
 import { backgroundSpec, type BgSpec } from '../backgrounds'
-import { HIGHLIGHTER_ALPHA, THINNING, centerline, eraseFromStroke, isScribble, penOutline, scribbleTargets, strokeBBox, strokeHit, type BBox } from '../geometry'
-import { GRAIN_TILE, PENCIL_BASE_ALPHA, PENCIL_GRAIN_ALPHA, grainSpecks } from '../grain'
+import { centerline, eraseFromStroke, isScribble, penOutline, pencilOutline, highlightRgb, scribbleTargets, strokeBBox, strokeHit, type BBox } from '../geometry'
+import { GRAIN_TILE, grainSpecks, pencilAlpha, pencilLevel } from '../grain'
 import { pageSize, uid, type Page, type Stroke } from '../model'
 import { recognizeShape } from '../shapes'
 
@@ -47,6 +47,8 @@ export interface InkHost {
 interface RStroke extends Stroke {
   bbox: BBox
   path?: Path2D
+  /** Pencil only: opacity step, from the pressure of the stroke. */
+  level?: number
 }
 
 interface PageView {
@@ -137,7 +139,7 @@ function shareInside(s: Stroke, poly: number[]): number {
 }
 
 function toR(s: Stroke): RStroke {
-  return { ...s, bbox: strokeBBox(s) }
+  return { ...s, bbox: strokeBBox(s), level: s.tool === 'pencil' ? pencilLevel(s.pts) : undefined }
 }
 
 /** Rounded pen outline: curves through the midpoints of the polygon's sides. */
@@ -155,7 +157,7 @@ function roundedOutline(p: Path2D, flat: number[]): void {
 function strokePath(tool: Stroke['tool'], pts: ArrayLike<number>, width: number, complete: boolean): Path2D {
   const p = new Path2D()
   if (tool === 'pen' || tool === 'pencil') {
-    roundedOutline(p, penOutline(pts, width, complete, THINNING[tool]))
+    roundedOutline(p, tool === 'pencil' ? pencilOutline(pts, width) : penOutline(pts, width, complete))
     return p
   }
   const flat = centerline(pts)
@@ -654,17 +656,18 @@ export class InkCanvas {
     }
   }
 
-  private paint(ctx: CanvasRenderingContext2D, s: Pick<Stroke, 'tool' | 'color' | 'width'>, path: Path2D): void {
+  private paint(ctx: CanvasRenderingContext2D, s: Pick<RStroke, 'tool' | 'color' | 'width' | 'level'>, path: Path2D): void {
     if (s.tool === 'pen') {
       ctx.fillStyle = s.color
       ctx.fill(path)
       return
     }
     if (s.tool === 'pencil') {
-      ctx.globalAlpha = PENCIL_BASE_ALPHA
+      const alpha = pencilAlpha(s.level ?? 3)
+      ctx.globalAlpha = alpha.base
       ctx.fillStyle = s.color
       ctx.fill(path)
-      ctx.globalAlpha = PENCIL_GRAIN_ALPHA
+      ctx.globalAlpha = alpha.grain
       ctx.fillStyle = grainPattern(ctx, s.color, ctx.getTransform().a)
       ctx.fill(path)
       ctx.globalAlpha = 1
@@ -673,10 +676,11 @@ export class InkCanvas {
     ctx.strokeStyle = s.color
     ctx.lineWidth = s.width
     if (s.tool === 'highlighter') {
-      ctx.globalAlpha = HIGHLIGHTER_ALPHA
-      ctx.globalCompositeOperation = 'multiply'
+      // Opaque, keeping the darker of paper and highlight: see highlightRgb.
+      const [r, g, b] = highlightRgb(s.color)
+      ctx.strokeStyle = `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`
+      ctx.globalCompositeOperation = 'darken'
       ctx.stroke(path)
-      ctx.globalAlpha = 1
       ctx.globalCompositeOperation = 'source-over'
     } else {
       ctx.stroke(path)
@@ -1013,7 +1017,7 @@ export class InkCanvas {
     ctx.clip()
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
-    this.paint(ctx, { tool: kind, color: tool.color, width: tool.width }, path)
+    this.paint(ctx, { tool: kind, color: tool.color, width: tool.width, level: kind === 'pencil' ? pencilLevel(pts) : undefined }, path)
     ctx.restore()
 
     let x0 = Infinity

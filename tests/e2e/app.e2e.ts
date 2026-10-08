@@ -477,7 +477,7 @@ describe('Plume in the browser', () => {
     for (let l = 0; l < 2; l++) await pen(cdp, scribble(340, 200 + l * 40, 300, l)) // pen, for comparison
     await page.getByRole('button', { name: 'Pencil', exact: true }).click()
     for (let l = 0; l < 2; l++) await pen(cdp, scribble(340, 300 + l * 40, 300, l + 2))
-    await page.getByTitle('2.8 pt').click()
+    await page.getByTitle('2.4 pt').click()
     await pen(cdp, scribble(340, 400, 300, 5))
     await settle(page)
     await page.screenshot({ path: `${OUT}15-pencil.png`, clip: { x: 320, y: 170, width: 360, height: 260 } })

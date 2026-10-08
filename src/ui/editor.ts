@@ -24,7 +24,7 @@ export interface EditorDeps {
 const PEN_COLORS = ['#1a1a1a', '#4a4f57', '#1d4ed8', '#0e7490', '#15803d', '#b45309', '#c62828', '#9d174d', '#6d28d9', '#8a5a2b']
 const HL_COLORS = ['#ffe14d', '#a8f06e', '#7fd8ff', '#ffa8d0', '#ffbf6b', '#c9b3ff']
 const PEN_WIDTHS = [0.8, 1.3, 2.2]
-const PENCIL_WIDTHS = [1.2, 1.8, 2.8]
+const PENCIL_WIDTHS = [1, 1.5, 2.4]
 const HL_WIDTHS = [8, 14, 22]
 const ERASER_SIZES = [6, 12, 24]
 

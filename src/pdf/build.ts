@@ -5,8 +5,8 @@
 import { PDFDocument, PDFName, PDFString, type PDFRef } from 'pdf-lib'
 import { strToU8, zlibSync } from 'fflate'
 import { backgroundSpec } from '../backgrounds'
-import { HIGHLIGHTER_ALPHA, THINNING, centerline, hexToRgb, penOutline, simplify, smoothClosed } from '../geometry'
-import { GRAIN_TILE, PENCIL_BASE_ALPHA, PENCIL_GRAIN_ALPHA, grainSpecks } from '../grain'
+import { centerline, hexToRgb, highlightRgb, penOutline, pencilOutline, simplify, smoothClosed } from '../geometry'
+import { GRAIN_TILE, PENCIL_LEVELS, grainSpecks, pencilAlpha, pencilLevel } from '../grain'
 import { pageSize, type Background, type Orientation, type Page, type Stroke } from '../model'
 import { FORMAT_VERSION, encodePage } from './codec'
 
@@ -64,7 +64,7 @@ function pageContent(page: PdfPageInput): string {
   const highlights = page.strokes.filter((s) => s.tool === 'highlighter')
   if (highlights.length) {
     out += 'q /GSh gs\n'
-    for (const s of highlights) out += strokedPath(s)
+    for (const s of highlights) out += `${highlightRgb(s.color).map(num).join(' ')} RG ${num(s.width)} w\n${localPath(centerline(s.pts), 'S')}`
     out += 'Q\n'
   }
   let fill = ''
@@ -77,11 +77,12 @@ function pageContent(page: PdfPageInput): string {
       if (color !== fill) out += `${(fill = color)} rg\n`
       out += localPath(outline, 'f')
     } else if (s.tool === 'pencil') {
-      const outline = simplify(smoothClosed(penOutline(s.pts, s.width, true, THINNING.pencil)), 0.05)
+      const outline = simplify(smoothClosed(pencilOutline(s.pts, s.width)), 0.05)
       if (outline.length < 4) continue
       // An even light layer, then the grain pattern on top, both in the stroke's colour.
       const color = rgb(s.color)
-      out += `q /GSb gs ${color} rg\n${localPath(outline, 'f')}/GSg gs /CsG cs ${color} /Grain scn\n${localPath(outline, 'f')}Q\n`
+      const level = pencilLevel(s.pts)
+      out += `q /GSb${level} gs ${color} rg\n${localPath(outline, 'f')}/GSg${level} gs /CsG cs ${color} /Grain scn\n${localPath(outline, 'f')}Q\n`
       fill = ''
     } else if (s.tool === 'line') {
       out += strokedPath(s)
@@ -133,7 +134,7 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
   const PieceInfo = PDFName.of('PieceInfo')
   const LastModified = PDFName.of('LastModified')
 
-  const highlighterState = ctx.register(ctx.obj({ Type: 'ExtGState', CA: HIGHLIGHTER_ALPHA, ca: HIGHLIGHTER_ALPHA, BM: 'Multiply' }))
+  const highlighterState = ctx.register(ctx.obj({ Type: 'ExtGState', BM: 'Darken' }))
   const backgrounds = new Map<string, PDFRef>()
   // Pencil grain: a repeating pattern of specks, painted in any colour.
   let grain = ''
@@ -152,8 +153,10 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
       ...flate,
     }),
   )
-  const pencilBase = ctx.register(ctx.obj({ Type: 'ExtGState', CA: PENCIL_BASE_ALPHA, ca: PENCIL_BASE_ALPHA }))
-  const pencilGrain = ctx.register(ctx.obj({ Type: 'ExtGState', CA: PENCIL_GRAIN_ALPHA, ca: PENCIL_GRAIN_ALPHA }))
+  const pencilStates = Array.from({ length: PENCIL_LEVELS }, (_, level) => {
+    const { base, grain } = pencilAlpha(level)
+    return { base: ctx.register(ctx.obj({ Type: 'ExtGState', CA: base, ca: base })), grain: ctx.register(ctx.obj({ Type: 'ExtGState', CA: grain, ca: grain })) }
+  })
   const grainResources = { pattern: ctx.obj({ Grain: grainPattern }), space: ctx.obj({ CsG: ['Pattern', 'DeviceRGB'] }) }
 
   for (const p of nb.pages) {
@@ -167,8 +170,10 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
     const page = doc.addPage([w, h])
     page.node.addContentStream(ctx.register(ctx.stream(entry.content, flate)))
     page.node.setExtGState(PDFName.of('GSh'), highlighterState)
-    page.node.setExtGState(PDFName.of('GSb'), pencilBase)
-    page.node.setExtGState(PDFName.of('GSg'), pencilGrain)
+    pencilStates.forEach((st, level) => {
+      page.node.setExtGState(PDFName.of(`GSb${level}`), st.base)
+      page.node.setExtGState(PDFName.of(`GSg${level}`), st.grain)
+    })
     const resources = page.node.normalizedEntries().Resources
     resources.set(PDFName.of('Pattern'), grainResources.pattern)
     resources.set(PDFName.of('ColorSpace'), grainResources.space)
