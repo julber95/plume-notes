@@ -341,7 +341,7 @@ describe('Plume in the browser', () => {
     await page.getByRole('button', { name: 'Pen', exact: true }).click()
     await shot(page, '11-phone-editor')
     // No toolbar button overflows the screen.
-    const overflow = await page.evaluate(() => [...document.querySelectorAll('.toolbar > *, .toolbar .tools > *')].filter((el) => el.getBoundingClientRect().right > innerWidth + 0.5 && getComputedStyle(el).display !== 'none').length)
+    const overflow = await page.evaluate(() => [...document.querySelectorAll('.toolbar > *')].filter((el) => el.getBoundingClientRect().right > innerWidth + 0.5 && getComputedStyle(el).display !== 'none').length)
     expect(overflow).toBe(0)
     await phone.ctx.close()
   })
@@ -492,6 +492,120 @@ describe('Plume in the browser', () => {
         }),
     )
     expect(tools).toEqual(['pen', 'pen', 'pencil', 'pencil', 'pencil'])
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
+  })
+
+  it('selects with a lasso, then recolours, duplicates, deletes, moves, copies, pastes and resizes', async () => {
+    const tab = await device()
+    const { page, cdp } = tab
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('canvas.ink').waitFor()
+    await settle(page)
+    const all = () =>
+      page.evaluate(
+        () =>
+          new Promise<{ color: string; width: number; x0: number; y0: number; x1: number; y1: number }[]>((resolve) => {
+            const open = indexedDB.open('plume')
+            open.onsuccess = () => {
+              const req = open.result.transaction('strokes').objectStore('strokes').getAll()
+              req.onsuccess = () => {
+                open.result.close()
+                resolve(
+                  (req.result as { color: string; width: number; seq: number; pts: Float32Array }[])
+                    .sort((a, b) => a.seq - b.seq)
+                    .map((s) => {
+                      const xs = Array.from(s.pts).filter((_, i) => i % 3 === 0)
+                      const ys = Array.from(s.pts).filter((_, i) => i % 3 === 1)
+                      return { color: s.color, width: s.width, x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }
+                    }),
+                )
+              }
+            }
+          }),
+      )
+    /** Traces a closed loop around a screen rectangle with the pen. */
+    const loop = (x0: number, y0: number, x1: number, y1: number): Pt[] => {
+      const pts: Pt[] = []
+      const side = (ax: number, ay: number, bx: number, by: number) => {
+        for (let i = 0; i < 12; i++) pts.push([ax + ((bx - ax) * i) / 12, ay + ((by - ay) * i) / 12, 0.4])
+      }
+      side(x0, y0, x1, y0)
+      side(x1, y0, x1, y1)
+      side(x1, y1, x0, y1)
+      side(x0, y1, x0, y0)
+      return pts
+    }
+    const drag = (from: [number, number], to: [number, number]): Pt[] => Array.from({ length: 11 }, (_, i) => [from[0] + ((to[0] - from[0]) * i) / 10, from[1] + ((to[1] - from[1]) * i) / 10, 0.4])
+    // Page coordinates (points) to screen pixels, for this window size.
+    const zoom = (1280 - 36) / 595.28
+    const sx = (x: number) => 640 - (595.28 / 2) * zoom + x * zoom
+    const sy = (y: number) => 48 + 14 * zoom + y * zoom
+
+    for (let i = 0; i < 3; i++) await pen(cdp, scribble(340 + i * 30, 200, 22, i)) // a "word"
+    await pen(cdp, scribble(340, 400, 80)) // something else, further down
+    await settle(page)
+    const before = await all()
+
+    await page.getByRole('button', { name: 'Select', exact: true }).click()
+    await pen(cdp, loop(322, 172, 450, 228))
+    await page.locator('.sel-bar').waitFor()
+    await shot(page, '16-selection')
+
+    await page.getByRole('button', { name: 'Recolour #c62828' }).click()
+    await settle(page)
+    expect((await all()).map((s) => s.color)).toEqual(['#c62828', '#c62828', '#c62828', '#1a1a1a'])
+
+    await page.getByRole('button', { name: 'Duplicate' }).click()
+    await settle(page)
+    expect((await all()).length).toBe(7)
+    await page.getByRole('button', { name: 'Delete' }).click() // the copies are what is selected now
+    await settle(page)
+    expect((await all()).length).toBe(4)
+    await expect.poll(() => page.locator('.sel-bar').isHidden()).toBe(true)
+
+    // Select the word again and drag it 100 px right and 60 px down.
+    await pen(cdp, loop(322, 172, 450, 228))
+    await page.locator('.sel-bar').waitFor()
+    await pen(cdp, drag([385, 200], [485, 260]))
+    await settle(page)
+    const moved = await all()
+    expect(moved[0].x0 - before[0].x0).toBeCloseTo(100 / zoom, 0)
+    expect(moved[0].y0 - before[0].y0).toBeCloseTo(60 / zoom, 0)
+    expect(moved[3].x0).toBeCloseTo(before[3].x0, 3) // the other stroke did not move
+
+    // Copy, tap elsewhere, paste.
+    await page.keyboard.press('Control+c')
+    await pen(cdp, [[900, 600], [900, 600]])
+    await page.getByRole('button', { name: 'Paste' }).click()
+    await settle(page)
+    const pasted = await all()
+    expect(pasted.length).toBe(7)
+    const copy = pasted.slice(4)
+    expect(copy.map((s) => s.color)).toEqual(['#c62828', '#c62828', '#c62828'])
+    const centre = (Math.min(...copy.map((s) => s.x0)) + Math.max(...copy.map((s) => s.x1))) / 2
+    expect(sx(centre)).toBeGreaterThan(880)
+    expect(sx(centre)).toBeLessThan(920)
+
+    // Resize the pasted copy by its bottom-right corner, to one and a half times its size.
+    const w = copy[0].width
+    const left = Math.min(...copy.map((s) => s.x0)) - w
+    const top = Math.min(...copy.map((s) => s.y0)) - w
+    const right = Math.max(...copy.map((s) => s.x1)) + w
+    const bottom = Math.max(...copy.map((s) => s.y1)) + w
+    await pen(cdp, drag([sx(right), sy(bottom)], [sx(left + (right - left) * 1.5), sy(top + (bottom - top) * 1.5)]))
+    await settle(page)
+    await shot(page, '17-selection-resized')
+    const resized = (await all()).slice(4)
+    expect(resized[0].width / w).toBeGreaterThan(1.4)
+    expect(resized[0].width / w).toBeLessThan(1.6)
+    expect(Math.min(...resized.map((s) => s.x0)) - resized[0].width).toBeCloseTo(left, 0) // the opposite corner stayed put
+
+    // Undo brings back the previous size.
+    await page.getByRole('button', { name: 'Undo' }).click()
+    await settle(page)
+    expect((await all()).slice(4)[0].width).toBeCloseTo(w, 5)
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
   })

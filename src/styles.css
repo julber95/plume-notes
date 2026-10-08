@@ -896,6 +896,38 @@ canvas.ink {
   background: rgba(30, 45, 80, 0.07);
 }
 
+.sel-bar {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.sel-bar .swatch {
+  width: 28px;
+  height: 28px;
+  margin: 0 2px;
+  flex: none;
+}
+
+.sel-bar .sep {
+  width: 1px;
+  height: 24px;
+  margin: 0 4px;
+  background: var(--line);
+}
+
+.sel-bar .btn {
+  min-height: 38px;
+  border: 0;
+}
+
 .pages-panel {
   position: absolute;
   top: 0;
@@ -974,6 +1006,13 @@ canvas.ink {
   .tools {
     gap: 0;
     padding: 0 2px;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tools .icon-btn {
+    flex: none;
   }
   .corner .icon-btn,
   .corner .page-pill:not(:last-child) {

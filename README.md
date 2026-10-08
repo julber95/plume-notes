@@ -23,13 +23,15 @@ recent browser on a computer.
   straight line, rectangle, square, triangle, circle, ellipse or smooth curve
   (can be switched off in the pen settings). While still holding, move the pen
   to enlarge or shrink a closed shape.
+- Selection: circle strokes freehand with the lasso, then move, resize,
+  recolour, duplicate, copy, cut, paste or delete them.
 - Page management: add, duplicate, move, delete, change the background.
 - Palm rejection; scroll and zoom with fingers; mouse on a computer.
 - Every stroke saved locally at once; works offline.
 - Automatic PDF export to OneDrive, with a status indicator.
 - When a notebook is modified in two places, both versions are kept.
 
-Planned for version 2: lasso, PDF and image import, page
+Planned for version 2: PDF and image import, page
 thumbnails, favourite pens.
 
 ## Development

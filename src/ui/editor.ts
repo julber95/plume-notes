@@ -44,6 +44,7 @@ const TOOLS: { kind: ToolKind; label: string; icon: string }[] = [
   { kind: 'highlighter', label: 'Highlighter', icon: icons.highlighter },
   { kind: 'eraser', label: 'Eraser', icon: icons.eraser },
   { kind: 'line', label: 'Straight line', icon: icons.line },
+  { kind: 'lasso', label: 'Select', icon: icons.lasso },
 ]
 
 export async function openEditor(root: HTMLElement, notebookId: string, deps: EditorDeps): Promise<EditorHandle | null> {
@@ -91,6 +92,8 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   const quick = h('div', { class: 'quick' })
   const pageLabel = h('button', { class: 'page-pill', type: 'button', title: 'Pages', onClick: () => togglePanel() })
   const panel = h('aside', { class: 'pages-panel', hidden: true })
+  // Floating bar of actions for the selection (or "Paste" after a tap).
+  const selBar = h('div', { class: 'sel-bar', hidden: true })
 
   const toolbar = h(
     'header',
@@ -122,7 +125,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     h('button', { class: 'page-pill', type: 'button', title: 'Fit to width', onClick: () => canvas.zoomBy('fit') }, 'Fit'),
     pageLabel,
   )
-  const view = h('div', { class: 'editor' }, toolbar, h('div', { class: 'editor-body' }, stage, corner, panel))
+  const view = h('div', { class: 'editor' }, toolbar, h('div', { class: 'editor-body' }, stage, corner, selBar, panel))
   root.replaceChildren(view)
 
   const canvas = new InkCanvas(
@@ -141,6 +144,8 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
       },
       onViewChange: (i) => (pageLabel.textContent = `${i + 1} / ${pages.length}`),
       onAddPage: () => addPage(pages.length - 1),
+      onSelection: (rect) => showSelectionBar(rect),
+      onLassoTap: (x, y, canPaste) => showPasteBar(x, y, canPaste),
     },
     tool,
   )
@@ -166,14 +171,16 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   }
 
   function selectTool(kind: ToolKind, button: HTMLElement): void {
+    selBar.hidden = true
     if (tool.kind !== kind) {
       tool.kind = kind
+      canvas.clearSelection()
       closePopovers()
       saveTool()
       return
     }
-    // Second tap on the active tool: its settings.
-    showPopover(button, toolPanel(kind))
+    // Second tap on the active tool: its settings (the selection tool has none).
+    if (kind !== 'lasso') showPopover(button, toolPanel(kind))
   }
 
   function swatches(colors: string[], current: string, pick: (c: string) => void): HTMLElement {
@@ -288,8 +295,55 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     return box
   }
 
+  /** Places the floating bar above the given area (below it when there is no room). */
+  function placeBar(x: number, y: number, w: number, h: number): void {
+    selBar.hidden = false
+    const bar = selBar.getBoundingClientRect()
+    const area = stage.getBoundingClientRect()
+    const left = Math.max(6, Math.min(area.width - bar.width - 6, x + w / 2 - bar.width / 2))
+    let top = y - bar.height - 14
+    if (top < 6) top = Math.min(area.height - bar.height - 6, y + h + 14)
+    selBar.style.left = `${left}px`
+    selBar.style.top = `${Math.max(6, top)}px`
+  }
+
+  function showSelectionBar(rect: { x: number; y: number; w: number; h: number } | null): void {
+    if (!rect) {
+      selBar.hidden = true
+      return
+    }
+    if (selBar.dataset.mode !== 'selection') {
+      selBar.dataset.mode = 'selection'
+      selBar.replaceChildren(
+        ...[PEN_COLORS[0], PEN_COLORS[2], PEN_COLORS[6], PEN_COLORS[4]].map((c) =>
+          h('button', { type: 'button', class: 'swatch', style: `background:${c}`, title: 'Change colour', 'aria-label': `Recolour ${c}`, onClick: () => canvas.recolorSelection(c) }),
+        ),
+        h('input', { type: 'color', class: 'swatch custom', title: 'Other colour', 'aria-label': 'Recolour, other colour', onChange: (e: Event) => canvas.recolorSelection((e.target as HTMLInputElement).value) }),
+        h('span', { class: 'sep' }),
+        iconButton(icons.duplicate, 'Duplicate', () => canvas.duplicateSelection(), 'small'),
+        iconButton(icons.copy, 'Copy', () => (canvas.copySelection(), toast('Copied. Tap the page with the selection tool to paste.')), 'small'),
+        iconButton(icons.cut, 'Cut', () => canvas.cutSelection(), 'small'),
+        iconButton(icons.trash, 'Delete', () => canvas.deleteSelection(), 'small danger'),
+      )
+    }
+    placeBar(rect.x, rect.y, rect.w, rect.h)
+  }
+
+  function showPasteBar(x: number, y: number, canPaste: boolean): void {
+    if (!canPaste) {
+      selBar.hidden = true
+      return
+    }
+    selBar.dataset.mode = 'paste'
+    selBar.replaceChildren(
+      h('button', { class: 'btn', type: 'button', onClick: () => ((selBar.hidden = true), canvas.paste()) }, h('span', { class: 'menu-icon', html: icons.paste }), 'Paste'),
+    )
+    placeBar(x, y, 0, 0)
+  }
+
   /** Direct access to the current colours and widths (wide enough screens). */
   function renderQuick(): void {
+    if (tool.kind === 'lasso') return quick.replaceChildren()
     if (tool.kind === 'eraser') {
       quick.replaceChildren(
         ...ERASER_SIZES.map((s) =>
@@ -430,8 +484,19 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   // ---------- Keyboard, closing ----------
 
   const onKey = (e: KeyboardEvent): void => {
-    if (!(e.ctrlKey || e.metaKey) || document.querySelector('dialog[open]')) return
+    if (document.querySelector('dialog[open]') || (e.target as HTMLElement).tagName === 'INPUT') return
     const k = e.key.toLowerCase()
+    if ((k === 'delete' || k === 'backspace') && canvas.hasSelection()) {
+      canvas.deleteSelection()
+      return e.preventDefault()
+    }
+    if (!(e.ctrlKey || e.metaKey)) return
+    if (canvas.hasSelection() && 'cxd'.includes(k) && k.length === 1) {
+      if (k === 'c') canvas.copySelection()
+      else if (k === 'x') canvas.cutSelection()
+      else canvas.duplicateSelection()
+      return e.preventDefault()
+    }
     if (k === 'z' && !e.shiftKey) doUndo()
     else if (k === 'y' || (k === 'z' && e.shiftKey)) doRedo()
     else return

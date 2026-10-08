@@ -10,7 +10,7 @@ import { GRAIN_TILE, PENCIL_BASE_ALPHA, PENCIL_GRAIN_ALPHA, grainSpecks } from '
 import { pageSize, uid, type Page, type Stroke } from '../model'
 import { recognizeShape } from '../shapes'
 
-export type ToolKind = 'pen' | 'pencil' | 'highlighter' | 'eraser' | 'line'
+export type ToolKind = 'pen' | 'pencil' | 'highlighter' | 'eraser' | 'line' | 'lasso'
 
 export interface ToolState {
   kind: ToolKind
@@ -35,6 +35,13 @@ export interface InkHost {
   onChange(change: StrokeChange): void
   onViewChange(pageIndex: number): void
   onAddPage(): void
+  /**
+   * Where the selection is on screen (CSS pixels, relative to the canvas), or
+   * null when nothing is selected or the selection is being dragged.
+   */
+  onSelection(rect: { x: number; y: number; w: number; h: number } | null): void
+  /** A tap with the selection tool, at this screen position. */
+  onLassoTap(x: number, y: number, canPaste: boolean): void
 }
 
 interface RStroke extends Stroke {
@@ -63,11 +70,14 @@ type Action =
   | { type: 'erase'; pointerId: number; lastX: number; lastY: number; removed: Map<string, Stroke>; added: Map<string, RStroke> }
   | { type: 'pan'; pointerId: number; lastX: number; lastY: number }
   | { type: 'tapAdd'; pointerId: number }
+  | { type: 'lasso'; pointerId: number; pv: PageView; pts: number[]; startX: number; startY: number }
+  | { type: 'transform'; pointerId: number; mode: 'move' | 'scale'; startX: number; startY: number; reach: number; moved: boolean }
 
 const GAP = 14
 const ADD_ZONE = 64
 const PAPER_BG = '#e7e9ed'
 const MAX_ZOOM = 8
+const SELECT_COLOR = '#2b4c8c'
 /** Maximum size of a page's cached image (pixels). */
 const CACHE_PIXELS = 5e6
 /** How long the pen must stay still at the end of a stroke to ask for a clean shape (ms). */
@@ -83,6 +93,48 @@ const DEBUG = (() => {
     return false
   }
 })()
+
+/** Strokes copied or cut with the selection tool (kept while the application is open). */
+let clipboard: Stroke[] = []
+
+function plain(s: RStroke): Stroke {
+  return { id: s.id, pageId: s.pageId, seq: s.seq, tool: s.tool, color: s.color, width: s.width, pts: s.pts }
+}
+
+function unionBox(a: BBox, b: BBox): BBox {
+  return [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]
+}
+
+/** Is the point inside the polygon (flat x, y list)? */
+function insidePolygon(x: number, y: number, poly: number[]): boolean {
+  let inside = false
+  for (let i = 0, j = poly.length - 2; i < poly.length; j = i, i += 2) {
+    const xi = poly[i]
+    const yi = poly[i + 1]
+    const xj = poly[j]
+    const yj = poly[j + 1]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}
+
+/** Share of a stroke that lies inside the polygon. */
+function shareInside(s: Stroke, poly: number[]): number {
+  const p = s.pts
+  let total = 0
+  let inside = 0
+  const visit = (x: number, y: number) => {
+    total++
+    if (insidePolygon(x, y, poly)) inside++
+  }
+  visit(p[0], p[1])
+  for (let i = 3; i < p.length; i += 3) {
+    // A straight line only stores its two ends: sample along it.
+    const steps = Math.max(1, Math.ceil(Math.hypot(p[i] - p[i - 3], p[i + 1] - p[i - 2]) / 2))
+    for (let k = 1; k <= steps; k++) visit(p[i - 3] + ((p[i] - p[i - 3]) * k) / steps, p[i - 2] + ((p[i + 1] - p[i - 2]) * k) / steps)
+  }
+  return inside / total
+}
 
 function toR(s: Stroke): RStroke {
   return { ...s, bbox: strokeBBox(s) }
@@ -171,6 +223,14 @@ export class InkCanvas {
   private dirty: { pv: PageView; box: BBox } | null = null
   /** Screen area (device pixels) covered by the stroke in progress at its last drawing. */
   private liveBox: BBox | null = null
+  /** Strokes selected with the lasso, and the box around them (page coordinates). */
+  private selection: { pv: PageView; ids: Set<string>; box: BBox } | null = null
+  /** Move or resize in progress: p' = anchor + (p - anchor) * k + (dx, dy). */
+  private xform: { dx: number; dy: number; k: number; ax: number; ay: number } | null = null
+  /** Selected strokes while they are being dragged: drawn on top, not with the page. */
+  private hidden: Set<string> | null = null
+  private pasteTarget: { pv: PageView; x: number; y: number } | null = null
+  private reported = ''
   /** When the stroke in progress was last drawn, and how long that took (ms). */
   private liveAt = 0
   private liveCost = 0
@@ -238,6 +298,7 @@ export class InkCanvas {
 
   /** Replaces the list of pages (strokes already loaded are kept). */
   setPages(pages: Page[], reload = false): void {
+    this.clearSelection()
     const old = new Map(this.pages.map((p) => [p.page.id, p]))
     let y = GAP
     let maxW = 0
@@ -338,6 +399,7 @@ export class InkCanvas {
 
   /** Applies a change coming from elsewhere (undo, redo). */
   applyChange(added: Stroke[], removed: Stroke[]): void {
+    this.clearSelection()
     for (const s of removed) {
       const pv = this.pages.find((p) => p.page.id === s.pageId)
       if (!pv?.strokes) continue
@@ -482,6 +544,7 @@ export class InkCanvas {
       for (const pass of [0, 1]) {
         for (const s of pv.strokes) {
           if ((s.tool === 'highlighter') !== (pass === 0)) continue
+          if (this.hidden?.has(s.id)) continue
           const b = s.bbox
           if (clip && (b[2] < clip[0] || b[0] > clip[2] || b[3] < clip[1] || b[1] > clip[3])) continue
           if (!s.path) {
@@ -689,6 +752,246 @@ export class InkCanvas {
       ctx.lineWidth = 1
       ctx.stroke()
     }
+    this.drawSelection(ctx)
+  }
+
+  // ---------- Selection (lasso) ----------
+
+  /** Draws the lasso being traced, the selected strokes being dragged, and the selection box. */
+  private drawSelection(ctx: CanvasRenderingContext2D): void {
+    const a = this.action
+    const dash = [5 / this.zoom, 4 / this.zoom]
+    if (a?.type === 'lasso' && a.pts.length >= 4) {
+      this.pageTransform(ctx, a.pv)
+      ctx.beginPath()
+      ctx.moveTo(a.pts[0], a.pts[1])
+      for (let i = 2; i < a.pts.length; i += 2) ctx.lineTo(a.pts[i], a.pts[i + 1])
+      ctx.closePath()
+      ctx.fillStyle = 'rgba(43, 76, 140, 0.06)'
+      ctx.fill()
+      ctx.setLineDash(dash)
+      ctx.strokeStyle = SELECT_COLOR
+      ctx.lineWidth = 1.3 / this.zoom
+      ctx.stroke()
+      ctx.setLineDash([])
+    }
+    const sel = this.selection
+    let rect: { x: number; y: number; w: number; h: number } | null = null
+    if (sel) {
+      const t = this.xform ?? { dx: 0, dy: 0, k: 1, ax: 0, ay: 0 }
+      this.pageTransform(ctx, sel.pv)
+      if (this.hidden && sel.pv.strokes) {
+        // Strokes being moved or resized: the same drawing, shifted and scaled.
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(0, 0, sel.pv.w, sel.pv.h)
+        ctx.clip()
+        ctx.translate(t.ax + t.dx, t.ay + t.dy)
+        ctx.scale(t.k, t.k)
+        ctx.translate(-t.ax, -t.ay)
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        for (const pass of [0, 1]) {
+          for (const s of sel.pv.strokes) {
+            if (!this.hidden.has(s.id) || (s.tool === 'highlighter') !== (pass === 0)) continue
+            this.paint(ctx, s, (s.path ??= buildPath(s)))
+          }
+        }
+        ctx.restore()
+      }
+      const x0 = t.ax + (sel.box[0] - t.ax) * t.k + t.dx
+      const y0 = t.ay + (sel.box[1] - t.ay) * t.k + t.dy
+      const x1 = t.ax + (sel.box[2] - t.ax) * t.k + t.dx
+      const y1 = t.ay + (sel.box[3] - t.ay) * t.k + t.dy
+      ctx.setLineDash(dash)
+      ctx.strokeStyle = SELECT_COLOR
+      ctx.lineWidth = 1.3 / this.zoom
+      ctx.strokeRect(x0, y0, x1 - x0, y1 - y0)
+      ctx.setLineDash([])
+      const r = 4.5 / this.zoom
+      ctx.fillStyle = '#ffffff'
+      for (const [hx, hy] of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) {
+        ctx.beginPath()
+        ctx.arc(hx, hy, r, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+      }
+      if (!this.xform) {
+        rect = { x: this.tx + (sel.pv.x + x0) * this.zoom, y: this.ty + (sel.pv.y + y0) * this.zoom, w: (x1 - x0) * this.zoom, h: (y1 - y0) * this.zoom }
+      }
+    }
+    const key = rect ? `${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.w)},${Math.round(rect.h)}` : ''
+    if (key !== this.reported) {
+      this.reported = key
+      this.host.onSelection(rect)
+    }
+  }
+
+  private lassoDown(e: PointerEvent, w: { x: number; y: number }): void {
+    const sel = this.selection
+    if (sel) {
+      const x = w.x - sel.pv.x
+      const y = w.y - sel.pv.y
+      const b = sel.box
+      const grab = 18 / this.zoom
+      // A corner resizes the selection, keeping the opposite corner in place.
+      for (const [cx, cy, ox, oy] of [[b[0], b[1], b[2], b[3]], [b[2], b[1], b[0], b[3]], [b[2], b[3], b[0], b[1]], [b[0], b[3], b[2], b[1]]]) {
+        if (Math.hypot(x - cx, y - cy) > grab) continue
+        this.beginTransform(e, 'scale', x, y, ox, oy, Math.max(1, Math.hypot(x - ox, y - oy)))
+        return
+      }
+      if (x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]) {
+        this.beginTransform(e, 'move', x, y, 0, 0, 1)
+        return
+      }
+      this.clearSelection()
+    }
+    const pv = this.pageAt(w.x, w.y)
+    if (!pv?.strokes) return
+    this.action = { type: 'lasso', pointerId: e.pointerId, pv, pts: [w.x - pv.x, w.y - pv.y], startX: e.clientX, startY: e.clientY }
+  }
+
+  private beginTransform(e: PointerEvent, mode: 'move' | 'scale', x: number, y: number, ax: number, ay: number, reach: number): void {
+    const sel = this.selection!
+    this.action = { type: 'transform', pointerId: e.pointerId, mode, startX: x, startY: y, reach, moved: false }
+    this.xform = { dx: 0, dy: 0, k: 1, ax, ay }
+    this.hidden = new Set(sel.ids)
+    this.markDirty(sel.pv, sel.box)
+  }
+
+  private finishLasso(a: Extract<Action, { type: 'lasso' }>, e: PointerEvent): void {
+    if (Math.hypot(e.clientX - a.startX, e.clientY - a.startY) < 8 && a.pts.length < 16) {
+      // A simple tap: offer to paste here.
+      const w = this.world(e)
+      const r = this.front.getBoundingClientRect()
+      this.pasteTarget = { pv: a.pv, x: w.x - a.pv.x, y: w.y - a.pv.y }
+      this.host.onLassoTap(e.clientX - r.left, e.clientY - r.top, clipboard.length > 0)
+      return
+    }
+    const picked = (a.pv.strokes ?? []).filter((s) => shareInside(s, a.pts) >= 0.6)
+    if (picked.length) this.select(a.pv, picked)
+  }
+
+  private select(pv: PageView, strokes: RStroke[]): void {
+    let box = strokes[0].bbox
+    for (const s of strokes) box = unionBox(box, s.bbox)
+    this.selection = { pv, ids: new Set(strokes.map((s) => s.id)), box }
+    this.schedule()
+  }
+
+  private selected(): RStroke[] {
+    const sel = this.selection
+    return sel?.pv.strokes?.filter((s) => sel.ids.has(s.id)) ?? []
+  }
+
+  /** Replaces each selected stroke by its modified copy, as one undoable change. */
+  private replaceSelected(change: (s: RStroke) => Stroke): void {
+    const sel = this.selection
+    if (!sel?.pv.strokes) return
+    const olds: Stroke[] = []
+    const news: RStroke[] = []
+    let dirty = sel.box
+    sel.pv.strokes = sel.pv.strokes.map((s) => {
+      if (!sel.ids.has(s.id)) return s
+      const next = toR({ ...change(s), id: uid() })
+      olds.push(plain(s))
+      news.push(next)
+      dirty = unionBox(dirty, next.bbox)
+      return next
+    })
+    if (!news.length) return
+    this.select(sel.pv, news)
+    this.markDirty(sel.pv, dirty)
+    this.host.onChange({ added: news.map(plain), removed: olds })
+  }
+
+  private finishTransform(apply: boolean): void {
+    const sel = this.selection
+    const t = this.xform
+    this.xform = null
+    this.hidden = null
+    if (!sel || !t) return
+    if (!apply) return this.markDirty(sel.pv, sel.box)
+    this.replaceSelected((s) => {
+      const pts = Float32Array.from(s.pts)
+      for (let i = 0; i < pts.length; i += 3) {
+        pts[i] = t.ax + (pts[i] - t.ax) * t.k + t.dx
+        pts[i + 1] = t.ay + (pts[i + 1] - t.ay) * t.k + t.dy
+      }
+      return { ...plain(s), width: s.width * t.k, pts }
+    })
+  }
+
+  clearSelection(): void {
+    const sel = this.selection
+    if (!sel) return
+    this.selection = null
+    if (this.hidden) {
+      this.hidden = null
+      this.xform = null
+      this.markDirty(sel.pv, sel.box)
+    }
+    this.schedule()
+  }
+
+  hasSelection(): boolean {
+    return !!this.selection
+  }
+
+  recolorSelection(color: string): void {
+    this.replaceSelected((s) => ({ ...plain(s), color }))
+  }
+
+  deleteSelection(): void {
+    const sel = this.selection
+    const gone = this.selected()
+    if (!sel || !gone.length) return
+    sel.pv.strokes = sel.pv.strokes!.filter((s) => !sel.ids.has(s.id))
+    this.selection = null
+    this.markDirty(sel.pv, sel.box)
+    this.host.onChange({ added: [], removed: gone.map(plain) })
+  }
+
+  copySelection(): void {
+    const picked = this.selected()
+    if (picked.length) clipboard = picked.map((s) => ({ ...plain(s), pts: Float32Array.from(s.pts) }))
+  }
+
+  cutSelection(): void {
+    this.copySelection()
+    this.deleteSelection()
+  }
+
+  /** Adds copies of `strokes` to a page, shifted by (dx, dy), and selects them. */
+  private addCopies(pv: PageView, strokes: Stroke[], dx: number, dy: number): void {
+    if (!pv.strokes || !strokes.length) return
+    const copies = strokes.map((s) => {
+      const pts = Float32Array.from(s.pts)
+      for (let i = 0; i < pts.length; i += 3) {
+        pts[i] += dx
+        pts[i + 1] += dy
+      }
+      this.lastSeq = Math.max(this.lastSeq + 1, Date.now())
+      return toR({ ...s, id: uid(), pageId: pv.page.id, seq: this.lastSeq, pts })
+    })
+    pv.strokes.push(...copies)
+    this.select(pv, copies)
+    this.markDirty(pv, this.selection!.box)
+    this.host.onChange({ added: copies.map(plain), removed: [] })
+  }
+
+  duplicateSelection(): void {
+    const sel = this.selection
+    if (sel) this.addCopies(sel.pv, this.selected().map(plain), 14, 14)
+  }
+
+  /** Pastes the copied strokes, centred on the last tap made with the selection tool. */
+  paste(): void {
+    const target = this.pasteTarget
+    if (!target || !clipboard.length) return
+    let box = strokeBBox(clipboard[0])
+    for (const s of clipboard) box = unionBox(box, strokeBBox(s))
+    this.addCopies(target.pv, clipboard, target.x - (box[0] + box[2]) / 2, target.y - (box[1] + box[3]) / 2)
   }
 
   /** Colour and width of the tool that draws strokes of this kind. */
@@ -898,6 +1201,8 @@ export class InkCanvas {
     this.front.setPointerCapture(e.pointerId)
     const w = this.world(e)
     const kind = penEraser ? 'eraser' : this.tool.kind
+    if (kind === 'lasso') return this.lassoDown(e, w)
+    this.clearSelection()
     if (kind === 'eraser') {
       this.action = { type: 'erase', pointerId: e.pointerId, lastX: w.x, lastY: w.y, removed: new Map(), added: new Map() }
       this.eraseAt(w.x, w.y)
@@ -939,6 +1244,32 @@ export class InkCanvas {
       return
     }
     if (a.type === 'tapAdd') return
+    if (a.type === 'lasso') {
+      const w = this.world(e)
+      const x = w.x - a.pv.x
+      const y = w.y - a.pv.y
+      const n = a.pts.length
+      if (Math.hypot(x - a.pts[n - 2], y - a.pts[n - 1]) > 1.5 / this.zoom) a.pts.push(x, y)
+      this.schedule()
+      return
+    }
+    if (a.type === 'transform') {
+      const sel = this.selection
+      const t = this.xform
+      if (!sel || !t) return
+      const w = this.world(e)
+      const x = w.x - sel.pv.x
+      const y = w.y - sel.pv.y
+      if (a.mode === 'move') {
+        t.dx = x - a.startX
+        t.dy = y - a.startY
+      } else {
+        t.k = Math.min(20, Math.max(0.05, Math.hypot(x - t.ax, y - t.ay) / a.reach))
+      }
+      a.moved = true
+      this.schedule()
+      return
+    }
     const events = e.getCoalescedEvents?.() ?? []
     if (!events.length) events.push(e)
     if (a.type === 'erase') {
@@ -979,6 +1310,10 @@ export class InkCanvas {
       if (a.removed.size || a.added.size) {
         this.host.onChange({ added: [...a.added.values()].map(({ bbox: _b, path: _p, ...s }) => s), removed: [...a.removed.values()] })
       }
+    } else if (a.type === 'lasso') {
+      this.finishLasso(a, e)
+    } else if (a.type === 'transform') {
+      this.finishTransform(a.moved)
     }
     this.schedule()
   }
@@ -988,6 +1323,7 @@ export class InkCanvas {
     const a = this.action
     if (!a || a.pointerId !== e.pointerId) return
     this.action = null
+    if (a.type === 'transform') this.finishTransform(false)
     if (a.type === 'draw' && a.pts.length > 3) {
       // The system interrupted the gesture: keep what was written.
       this.commitStroke(a)
