@@ -11,6 +11,7 @@ function notebook(): PdfNotebookInput {
   const p1: Stroke[] = [
     letter('p1', 100, 100, 0, rand),
     letter('p1', 120, 100, 1, rand, 'highlighter'),
+    { ...letter('p1', 150, 100, 1.5, rand), tool: 'pencil', color: '#4a4f57', width: 1.8 },
     { ...letter('p1', 0, 0, 2, rand), tool: 'line', color: '#c62828', width: 2, pts: Float32Array.from([50, 200, 0.5, 300, 240, 0.5]) },
     { ...letter('p1', 0, 0, 3, rand), pts: Float32Array.from([400, 400, 0.6]) },
   ]

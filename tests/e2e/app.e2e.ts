@@ -465,5 +465,35 @@ describe('Plume in the browser', () => {
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
   })
+
+  it('has a pencil with a graphite look, kept in the PDF', async () => {
+    const tab = await device()
+    const { page, cdp } = tab
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByRole('radio', { name: 'Blank' }).click()
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('canvas.ink').waitFor()
+    await settle(page)
+    for (let l = 0; l < 2; l++) await pen(cdp, scribble(340, 200 + l * 40, 300, l)) // pen, for comparison
+    await page.getByRole('button', { name: 'Pencil', exact: true }).click()
+    for (let l = 0; l < 2; l++) await pen(cdp, scribble(340, 300 + l * 40, 300, l + 2))
+    await page.getByTitle('2.8 pt').click()
+    await pen(cdp, scribble(340, 400, 300, 5))
+    await settle(page)
+    await page.screenshot({ path: `${OUT}15-pencil.png`, clip: { x: 320, y: 170, width: 360, height: 260 } })
+    const tools = await page.evaluate(
+      () =>
+        new Promise<string[]>((resolve) => {
+          const open = indexedDB.open('plume')
+          open.onsuccess = () => {
+            const req = open.result.transaction('strokes').objectStore('strokes').getAll()
+            req.onsuccess = () => (open.result.close(), resolve((req.result as { tool: string; seq: number }[]).sort((a, b) => a.seq - b.seq).map((s) => s.tool)))
+          }
+        }),
+    )
+    expect(tools).toEqual(['pen', 'pen', 'pencil', 'pencil', 'pencil'])
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
+  })
 })
 

@@ -11,7 +11,7 @@ import type { NotebookContent } from '../db'
 export const FORMAT_VERSION = 1
 
 interface HeaderStroke {
-  t: 'p' | 'h' | 'l'
+  t: 'p' | 'g' | 'h' | 'l'
   c: string
   w: number
   n: number
@@ -29,8 +29,8 @@ export interface PageData {
   strokes: Pick<Stroke, 'tool' | 'color' | 'width' | 'pts'>[]
 }
 
-const TOOL_CODE: Record<StrokeTool, HeaderStroke['t']> = { pen: 'p', highlighter: 'h', line: 'l' }
-const CODE_TOOL: Record<HeaderStroke['t'], StrokeTool> = { p: 'pen', h: 'highlighter', l: 'line' }
+const TOOL_CODE: Record<StrokeTool, HeaderStroke['t']> = { pen: 'p', pencil: 'g', highlighter: 'h', line: 'l' }
+const CODE_TOOL: Record<HeaderStroke['t'], StrokeTool> = { p: 'pen', g: 'pencil', h: 'highlighter', l: 'line' }
 const BGS = new Set<string>(['blank', 'lined', 'grid', 'dots', 'seyes'])
 
 class Writer {

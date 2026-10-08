@@ -22,6 +22,7 @@ const svg = (body: string) =>
 export const icons = {
   back: svg('<path d="M15 5l-7 7 7 7"/>'),
   pen: svg('<path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 013 3L8 19l-4 1z"/><path d="M14.5 6.5l3 3"/>'),
+  pencil: svg('<path d="M5 19l1.2-4.6L15.8 4.8a1.6 1.6 0 012.3 0l1.1 1.1a1.6 1.6 0 010 2.3L9.6 17.8 5 19z"/><path d="M6.2 14.4l3.4 3.4"/><path d="M14.2 6.4l3.4 3.4"/><path d="M5 19l1.6-.4-1.2-1.2z" fill="currentColor"/>'),
   highlighter: svg('<path d="M9 14l-3 3v3h3l3-3"/><path d="M8.5 13.5l7.8-8.3a1.8 1.8 0 012.6 0l.9.9a1.8 1.8 0 010 2.6l-8.3 7.8z"/><path d="M4 21h9"/>'),
   eraser: svg('<path d="M7.5 19.5l-3.6-3.6a1.8 1.8 0 010-2.5l8.5-8.5a1.8 1.8 0 012.5 0l4.3 4.3a1.8 1.8 0 010 2.5l-7.8 7.8z"/><path d="M9 9.5l6.5 6.5"/><path d="M7.5 19.5H20"/>'),
   line: svg('<path d="M5 19L19 5"/><circle cx="5" cy="19" r="1.6" fill="currentColor"/><circle cx="19" cy="5" r="1.6" fill="currentColor"/>'),

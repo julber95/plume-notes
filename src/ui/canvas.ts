@@ -5,11 +5,12 @@
 // the stroke in progress is recomputed on each frame.
 
 import { backgroundSpec, type BgSpec } from '../backgrounds'
-import { HIGHLIGHTER_ALPHA, centerline, eraseFromStroke, isScribble, penOutline, scribbleTargets, strokeBBox, strokeHit, type BBox } from '../geometry'
+import { HIGHLIGHTER_ALPHA, THINNING, centerline, eraseFromStroke, isScribble, penOutline, scribbleTargets, strokeBBox, strokeHit, type BBox } from '../geometry'
+import { GRAIN_TILE, PENCIL_BASE_ALPHA, PENCIL_GRAIN_ALPHA, grainSpecks } from '../grain'
 import { pageSize, uid, type Page, type Stroke } from '../model'
 import { recognizeShape } from '../shapes'
 
-export type ToolKind = 'pen' | 'highlighter' | 'eraser' | 'line'
+export type ToolKind = 'pen' | 'pencil' | 'highlighter' | 'eraser' | 'line'
 
 export interface ToolState {
   kind: ToolKind
@@ -18,6 +19,7 @@ export interface ToolState {
   scribbleErase: boolean
   /** Holding the pen still at the end of a stroke turns it into a clean shape. */
   shapeHold: boolean
+  pencil: { color: string; width: number }
   highlighter: { color: string; width: number }
   eraser: { mode: 'stroke' | 'partial'; size: number }
 }
@@ -57,7 +59,7 @@ interface PageView {
 }
 
 type Action =
-  | { type: 'draw'; pointerId: number; pv: PageView; kind: 'pen' | 'highlighter' | 'line'; pts: number[]; tail: number[]; predicted: number[]; raw: boolean; shape: number[] | null; resize: { base: number[]; cx: number; cy: number; reach: number; active: boolean } | null; holdX: number; holdY: number; holdTimer: number }
+  | { type: 'draw'; pointerId: number; pv: PageView; kind: 'pen' | 'pencil' | 'highlighter' | 'line'; pts: number[]; tail: number[]; predicted: number[]; raw: boolean; shape: number[] | null; resize: { base: number[]; cx: number; cy: number; reach: number; active: boolean } | null; holdX: number; holdY: number; holdTimer: number }
   | { type: 'erase'; pointerId: number; lastX: number; lastY: number; removed: Map<string, Stroke>; added: Map<string, RStroke> }
   | { type: 'pan'; pointerId: number; lastX: number; lastY: number }
   | { type: 'tapAdd'; pointerId: number }
@@ -100,8 +102,8 @@ function roundedOutline(p: Path2D, flat: number[]): void {
 
 function strokePath(tool: Stroke['tool'], pts: ArrayLike<number>, width: number, complete: boolean): Path2D {
   const p = new Path2D()
-  if (tool === 'pen') {
-    roundedOutline(p, penOutline(pts, width, complete))
+  if (tool === 'pen' || tool === 'pencil') {
+    roundedOutline(p, penOutline(pts, width, complete, THINNING[tool]))
     return p
   }
   const flat = centerline(pts)
@@ -110,6 +112,32 @@ function strokePath(tool: Stroke['tool'], pts: ArrayLike<number>, width: number,
   for (let i = 2; i < flat.length; i += 2) p.lineTo(flat[i], flat[i + 1])
   if (flat.length === 2) p.lineTo(flat[0] + 0.01, flat[1])
   return p
+}
+
+const grainCache = new Map<string, CanvasPattern>()
+
+/** Pencil grain in the given colour, sharp at the given scale (pixels per point). */
+function grainPattern(ctx: CanvasRenderingContext2D, color: string, scale: number): CanvasPattern | string {
+  const size = Math.round(GRAIN_TILE * Math.max(1, Math.min(16, Math.round(scale * 2) / 2)))
+  const key = `${color}@${size}`
+  let pattern = grainCache.get(key)
+  if (!pattern) {
+    const tile = document.createElement('canvas')
+    tile.width = tile.height = size
+    const t = tile.getContext('2d')!
+    const k = size / GRAIN_TILE
+    t.fillStyle = color
+    const specks = grainSpecks()
+    for (let i = 0; i < specks.length; i += 4) t.fillRect(specks[i] * k, specks[i + 1] * k, specks[i + 2] * k, specks[i + 3] * k)
+    const made = ctx.createPattern(tile, 'repeat')
+    if (!made) return color
+    // The tile always covers the same area of the page, whatever the zoom.
+    made.setTransform(new DOMMatrix().scale(GRAIN_TILE / size))
+    if (grainCache.size > 60) grainCache.clear()
+    grainCache.set(key, made)
+    pattern = made
+  }
+  return pattern
 }
 
 function buildPath(s: RStroke): Path2D {
@@ -409,18 +437,29 @@ export class InkCanvas {
 
   private renderRegion(pv: PageView, box: BBox): void {
     const ctx = this.bctx
-    const pad = 1.5 / this.zoom
-    const x0 = Math.max(0, box[0] - pad)
-    const y0 = Math.max(0, box[1] - pad)
-    const x1 = Math.min(pv.w, box[2] + pad)
-    const y1 = Math.min(pv.h, box[3] + pad)
-    if (x1 <= x0 || y1 <= y0) return
-    this.pageTransform(ctx, pv)
+    // The redrawn area is rounded outwards to whole screen pixels. Otherwise
+    // the pixels straddling its edge get painted twice at partial strength and
+    // a faint outline of the area shows through ink and highlighter.
+    const s = this.zoom * this.dpr
+    const ox = (this.tx + pv.x * this.zoom) * this.dpr
+    const oy = (this.ty + pv.y * this.zoom) * this.dpr
+    const px0 = Math.floor(Math.max(0, box[0]) * s + ox) - 2
+    const py0 = Math.floor(Math.max(0, box[1]) * s + oy) - 2
+    const px1 = Math.ceil(Math.min(pv.w, box[2]) * s + ox) + 2
+    const py1 = Math.ceil(Math.min(pv.h, box[3]) * s + oy) + 2
+    if (px1 <= px0 || py1 <= py0) return
     ctx.save()
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.beginPath()
-    ctx.rect(x0, y0, x1 - x0, y1 - y0)
+    ctx.rect(px0, py0, px1 - px0, py1 - py0)
     ctx.clip()
-    this.drawPage(ctx, pv, this.zoom * this.dpr, Infinity, [x0, y0, x1, y1])
+    // Outside the page (its shadow and the grey around it) is repainted too.
+    ctx.fillStyle = PAPER_BG
+    ctx.fillRect(px0, py0, px1 - px0, py1 - py0)
+    this.pageTransform(ctx, pv)
+    ctx.fillStyle = 'rgba(20, 30, 50, 0.10)'
+    ctx.fillRect(-0.5, 0, pv.w + 1, pv.h + 1.2)
+    this.drawPage(ctx, pv, s, Infinity, [(px0 - ox) / s, (py0 - oy) / s, (px1 - ox) / s, (py1 - oy) / s])
     ctx.restore()
   }
 
@@ -558,6 +597,16 @@ export class InkCanvas {
       ctx.fill(path)
       return
     }
+    if (s.tool === 'pencil') {
+      ctx.globalAlpha = PENCIL_BASE_ALPHA
+      ctx.fillStyle = s.color
+      ctx.fill(path)
+      ctx.globalAlpha = PENCIL_GRAIN_ALPHA
+      ctx.fillStyle = grainPattern(ctx, s.color, ctx.getTransform().a)
+      ctx.fill(path)
+      ctx.globalAlpha = 1
+      return
+    }
     ctx.strokeStyle = s.color
     ctx.lineWidth = s.width
     if (s.tool === 'highlighter') {
@@ -642,10 +691,15 @@ export class InkCanvas {
     }
   }
 
+  /** Colour and width of the tool that draws strokes of this kind. */
+  private settingsFor(kind: 'pen' | 'pencil' | 'highlighter' | 'line'): { color: string; width: number } {
+    return kind === 'highlighter' ? this.tool.highlighter : kind === 'pencil' ? this.tool.pencil : this.tool.pen
+  }
+
   /** Draws the stroke in progress on the screen; returns the area it covers (device pixels). */
   private paintLive(a: Extract<Action, { type: 'draw' }>): BBox {
     const ctx = this.fctx
-    const tool = a.kind === 'highlighter' ? this.tool.highlighter : this.tool.pen
+    const tool = this.settingsFor(a.kind)
     const kind = a.shape ? 'line' : a.kind
     const pts = a.shape ?? (a.kind === 'line' ? a.pts.slice(0, 3).concat(a.tail) : a.pts.concat(a.tail, a.predicted))
     const path = strokePath(kind, pts, tool.width, false)
@@ -962,11 +1016,11 @@ export class InkCanvas {
     const pts = a.kind === 'line' && !a.shape ? a.pts.slice(0, 3) : a.pts
     if (a.tail.length) pts.push(...a.tail)
     if (a.kind === 'line' && pts.length < 6) return
-    const tool = a.kind === 'highlighter' ? this.tool.highlighter : this.tool.pen
+    const tool = this.settingsFor(a.kind)
     this.lastSeq = Math.max(this.lastSeq + 1, Date.now())
     const stroke: Stroke = { id: uid(), pageId: a.pv.page.id, seq: this.lastSeq, tool: a.kind, color: tool.color, width: tool.width, pts: Float32Array.from(pts) }
     const rs = toR(stroke)
-    if (a.kind === 'pen' && this.tool.scribbleErase && isScribble(stroke.pts)) {
+    if ((a.kind === 'pen' || a.kind === 'pencil') && this.tool.scribbleErase && isScribble(stroke.pts)) {
       const targets = scribbleTargets(stroke, a.pv.strokes!)
       if (targets.length) {
         // A scribble over existing ink: erase what it covers, and do not keep it.

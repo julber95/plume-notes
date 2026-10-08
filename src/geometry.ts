@@ -61,12 +61,15 @@ const UNIT = 12
  * Meant to be drawn rounded: see `smoothClosed`. `complete` is false while
  * the stroke is being drawn.
  */
-export function penOutline(pts: ArrayLike<number>, width: number, complete = true): number[] {
+/** How much pressure changes the width: a pencil responds more than a pen. */
+export const THINNING = { pen: 0.5, pencil: 0.7 }
+
+export function penOutline(pts: ArrayLike<number>, width: number, complete = true, thinning = THINNING.pen): number[] {
   const input: number[][] = []
   for (let i = 0; i < pts.length; i += 3) input.push([pts[i] * UNIT, pts[i + 1] * UNIT, pts[i + 2]])
   const outline = getStroke(input, {
     size: width * UNIT,
-    thinning: 0.5,
+    thinning,
     smoothing: 0.5,
     streamline: 0.4,
     simulatePressure: false,

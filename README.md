@@ -15,8 +15,8 @@ recent browser on a computer.
   rename, move, delete, in both directions).
 - A4 pages, portrait or landscape, with blank, lined, grid, dotted and Seyès
   backgrounds.
-- Pressure-sensitive pen, highlighter (under the ink), eraser (whole stroke
-  or precise), straight line, undo / redo.
+- Pressure-sensitive pen, pencil with a graphite grain, highlighter (under
+  the ink), eraser (whole stroke or precise), straight line, undo / redo.
 - Scribble to erase: scribbling over existing ink with the pen deletes it
   (can be switched off in the pen settings).
 - Clean shapes: hold the pen still at the end of a stroke and it becomes a

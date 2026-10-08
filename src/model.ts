@@ -6,7 +6,7 @@ export const MM = 72 / 25.4
 
 export type Background = 'blank' | 'lined' | 'grid' | 'dots' | 'seyes'
 export type Orientation = 'portrait' | 'landscape'
-export type StrokeTool = 'pen' | 'highlighter' | 'line'
+export type StrokeTool = 'pen' | 'pencil' | 'highlighter' | 'line'
 
 export const BACKGROUNDS: { id: Background; label: string }[] = [
   { id: 'blank', label: 'Blank' },

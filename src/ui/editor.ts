@@ -24,12 +24,14 @@ export interface EditorDeps {
 const PEN_COLORS = ['#1a1a1a', '#4a4f57', '#1d4ed8', '#0e7490', '#15803d', '#b45309', '#c62828', '#9d174d', '#6d28d9', '#8a5a2b']
 const HL_COLORS = ['#ffe14d', '#a8f06e', '#7fd8ff', '#ffa8d0', '#ffbf6b', '#c9b3ff']
 const PEN_WIDTHS = [0.8, 1.3, 2.2]
+const PENCIL_WIDTHS = [1.2, 1.8, 2.8]
 const HL_WIDTHS = [8, 14, 22]
 const ERASER_SIZES = [6, 12, 24]
 
 const DEFAULT_TOOL: ToolState = {
   kind: 'pen',
   pen: { color: PEN_COLORS[0], width: PEN_WIDTHS[1] },
+  pencil: { color: PEN_COLORS[0], width: PENCIL_WIDTHS[1] },
   scribbleErase: true,
   shapeHold: true,
   highlighter: { color: HL_COLORS[0], width: HL_WIDTHS[1] },
@@ -38,6 +40,7 @@ const DEFAULT_TOOL: ToolState = {
 
 const TOOLS: { kind: ToolKind; label: string; icon: string }[] = [
   { kind: 'pen', label: 'Pen', icon: icons.pen },
+  { kind: 'pencil', label: 'Pencil', icon: icons.pencil },
   { kind: 'highlighter', label: 'Highlighter', icon: icons.highlighter },
   { kind: 'eraser', label: 'Eraser', icon: icons.eraser },
   { kind: 'line', label: 'Straight line', icon: icons.line },
@@ -48,7 +51,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   if (!node || node.deleted) return null
 
   const saved = await kvGet<ToolState>('tool')
-  const tool: ToolState = { ...DEFAULT_TOOL, ...saved, pen: { ...DEFAULT_TOOL.pen, ...saved?.pen }, highlighter: { ...DEFAULT_TOOL.highlighter, ...saved?.highlighter }, eraser: { ...DEFAULT_TOOL.eraser, ...saved?.eraser } }
+  const tool: ToolState = { ...DEFAULT_TOOL, ...saved, pen: { ...DEFAULT_TOOL.pen, ...saved?.pen }, pencil: { ...DEFAULT_TOOL.pencil, ...saved?.pencil }, highlighter: { ...DEFAULT_TOOL.highlighter, ...saved?.highlighter }, eraser: { ...DEFAULT_TOOL.eraser, ...saved?.eraser } }
   let pages: Page[] = []
   let undo: StrokeChange[] = []
   let redo: StrokeChange[] = []
@@ -152,7 +155,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     for (const [kind, b] of toolButtons) {
       b.classList.toggle('active', kind === tool.kind)
       const dot = b.querySelector<HTMLElement>('.tool-dot')!
-      dot.style.background = kind === 'pen' || kind === 'line' ? tool.pen.color : kind === 'highlighter' ? tool.highlighter.color : 'transparent'
+      dot.style.background = kind === 'pen' || kind === 'line' ? tool.pen.color : kind === 'pencil' ? tool.pencil.color : kind === 'highlighter' ? tool.highlighter.color : 'transparent'
     }
     renderQuick()
   }
@@ -238,14 +241,14 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
           }),
         ]
       }
-      const t = kind === 'highlighter' ? tool.highlighter : tool.pen
+      const t = kind === 'highlighter' ? tool.highlighter : kind === 'pencil' ? tool.pencil : tool.pen
       const hl = kind === 'highlighter'
       return [
         swatches(hl ? HL_COLORS : PEN_COLORS, t.color, (c) => {
           t.color = c
           rebuild()
         }),
-        slider('Width', t.width, hl ? 4 : 0.4, hl ? 30 : 5, hl ? 1 : 0.1, (v) => {
+        slider('Width', t.width, hl ? 4 : 0.4, hl ? 30 : kind === 'pencil' ? 6 : 5, hl ? 1 : 0.1, (v) => {
           t.width = v
           saveTool()
         }),
@@ -296,13 +299,14 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
       return
     }
     const hl = tool.kind === 'highlighter'
-    const t = hl ? tool.highlighter : tool.pen
+    const pencil = tool.kind === 'pencil'
+    const t = hl ? tool.highlighter : pencil ? tool.pencil : tool.pen
     const colors = (hl ? HL_COLORS : PEN_COLORS.filter((_, i) => [0, 2, 6, 4].includes(i))).slice(0, 4)
     if (!colors.includes(t.color)) colors[colors.length - 1] = t.color
     quick.replaceChildren(
       ...colors.map((c) => h('button', { type: 'button', class: `swatch ${c === t.color ? 'selected' : ''}`, style: `background:${c}`, 'aria-label': `Colour ${c}`, onClick: () => ((t.color = c), saveTool()) })),
       h('span', { class: 'sep' }),
-      ...(hl ? HL_WIDTHS : PEN_WIDTHS).map((w) =>
+      ...(hl ? HL_WIDTHS : pencil ? PENCIL_WIDTHS : PEN_WIDTHS).map((w) =>
         h('button', { type: 'button', class: `width ${t.width === w ? 'selected' : ''}`, title: `${w} pt`, onClick: () => ((t.width = w), saveTool()) }, h('span', { class: 'bar', style: `height:${hl ? w / 3 : Math.max(1.5, w * 2)}px` })),
       ),
     )

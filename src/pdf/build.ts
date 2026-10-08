@@ -5,7 +5,8 @@
 import { PDFDocument, PDFName, PDFString, type PDFRef } from 'pdf-lib'
 import { strToU8, zlibSync } from 'fflate'
 import { backgroundSpec } from '../backgrounds'
-import { HIGHLIGHTER_ALPHA, centerline, hexToRgb, penOutline, simplify, smoothClosed } from '../geometry'
+import { HIGHLIGHTER_ALPHA, THINNING, centerline, hexToRgb, penOutline, simplify, smoothClosed } from '../geometry'
+import { GRAIN_TILE, PENCIL_BASE_ALPHA, PENCIL_GRAIN_ALPHA, grainSpecks } from '../grain'
 import { pageSize, type Background, type Orientation, type Page, type Stroke } from '../model'
 import { FORMAT_VERSION, encodePage } from './codec'
 
@@ -75,6 +76,13 @@ function pageContent(page: PdfPageInput): string {
       const color = rgb(s.color)
       if (color !== fill) out += `${(fill = color)} rg\n`
       out += localPath(outline, 'f')
+    } else if (s.tool === 'pencil') {
+      const outline = simplify(smoothClosed(penOutline(s.pts, s.width, true, THINNING.pencil)), 0.05)
+      if (outline.length < 4) continue
+      // An even light layer, then the grain pattern on top, both in the stroke's colour.
+      const color = rgb(s.color)
+      out += `q /GSb gs ${color} rg\n${localPath(outline, 'f')}/GSg gs /CsG cs ${color} /Grain scn\n${localPath(outline, 'f')}Q\n`
+      fill = ''
     } else if (s.tool === 'line') {
       out += strokedPath(s)
     }
@@ -127,6 +135,26 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
 
   const highlighterState = ctx.register(ctx.obj({ Type: 'ExtGState', CA: HIGHLIGHTER_ALPHA, ca: HIGHLIGHTER_ALPHA, BM: 'Multiply' }))
   const backgrounds = new Map<string, PDFRef>()
+  // Pencil grain: a repeating pattern of specks, painted in any colour.
+  let grain = ''
+  const specks = grainSpecks()
+  for (let i = 0; i < specks.length; i += 4) grain += `${specks[i]} ${specks[i + 1]} ${specks[i + 2]} ${specks[i + 3]} re\n`
+  const grainPattern = ctx.register(
+    ctx.stream(zlibSync(strToU8(`${grain}f\n`), { level: 6 }), {
+      Type: 'Pattern',
+      PatternType: 1,
+      PaintType: 2,
+      TilingType: 1,
+      BBox: [0, 0, GRAIN_TILE, GRAIN_TILE],
+      XStep: GRAIN_TILE,
+      YStep: GRAIN_TILE,
+      Resources: {},
+      ...flate,
+    }),
+  )
+  const pencilBase = ctx.register(ctx.obj({ Type: 'ExtGState', CA: PENCIL_BASE_ALPHA, ca: PENCIL_BASE_ALPHA }))
+  const pencilGrain = ctx.register(ctx.obj({ Type: 'ExtGState', CA: PENCIL_GRAIN_ALPHA, ca: PENCIL_GRAIN_ALPHA }))
+  const grainResources = { pattern: ctx.obj({ Grain: grainPattern }), space: ctx.obj({ CsG: ['Pattern', 'DeviceRGB'] }) }
 
   for (const p of nb.pages) {
     const { w, h } = pageSize(p.orient)
@@ -139,6 +167,11 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
     const page = doc.addPage([w, h])
     page.node.addContentStream(ctx.register(ctx.stream(entry.content, flate)))
     page.node.setExtGState(PDFName.of('GSh'), highlighterState)
+    page.node.setExtGState(PDFName.of('GSb'), pencilBase)
+    page.node.setExtGState(PDFName.of('GSg'), pencilGrain)
+    const resources = page.node.normalizedEntries().Resources
+    resources.set(PDFName.of('Pattern'), grainResources.pattern)
+    resources.set(PDFName.of('ColorSpace'), grainResources.space)
     if (p.bg !== 'blank') {
       const key = `${p.bg}/${p.orient}`
       let ref = backgrounds.get(key)
