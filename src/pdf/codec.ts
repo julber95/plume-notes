@@ -11,10 +11,12 @@ import type { NotebookContent } from '../db'
 export const FORMAT_VERSION = 1
 
 interface HeaderStroke {
-  t: 'p' | 'g' | 'h' | 'l'
+  t: 'p' | 'g' | 'h' | 'l' | 'i'
   c: string
   w: number
   n: number
+  /** Images only: number of the picture among those of the page ("Im0", "Im1"…). */
+  im?: number
 }
 
 interface Header {
@@ -26,11 +28,11 @@ interface Header {
 export interface PageData {
   bg: Background
   orient: Orientation
-  strokes: Pick<Stroke, 'tool' | 'color' | 'width' | 'pts'>[]
+  strokes: (Pick<Stroke, 'tool' | 'color' | 'width' | 'pts' | 'image'> & { imageIndex?: number })[]
 }
 
-const TOOL_CODE: Record<StrokeTool, HeaderStroke['t']> = { pen: 'p', pencil: 'g', highlighter: 'h', line: 'l' }
-const CODE_TOOL: Record<HeaderStroke['t'], StrokeTool> = { p: 'pen', g: 'pencil', h: 'highlighter', l: 'line' }
+const TOOL_CODE: Record<StrokeTool, HeaderStroke['t']> = { pen: 'p', pencil: 'g', highlighter: 'h', line: 'l', image: 'i' }
+const CODE_TOOL: Record<HeaderStroke['t'], StrokeTool> = { p: 'pen', g: 'pencil', h: 'highlighter', l: 'line', i: 'image' }
 const BGS = new Set<string>(['blank', 'lined', 'grid', 'dots', 'seyes'])
 
 class Writer {
@@ -53,10 +55,18 @@ class Writer {
 }
 
 export function encodePage(page: Pick<Page, 'bg' | 'orient'>, strokes: Pick<Stroke, 'tool' | 'color' | 'width' | 'pts'>[]): Uint8Array {
+  let images = 0
   const header: Header = {
     bg: page.bg,
     o: page.orient,
-    s: strokes.map((s) => ({ t: TOOL_CODE[s.tool], c: s.color, w: Math.round(s.width * 100) / 100, n: s.pts.length / 3 })),
+    s: strokes.map((s) => ({
+      t: TOOL_CODE[s.tool],
+      c: s.color,
+      w: Math.round(s.width * 100) / 100,
+      n: s.pts.length / 3,
+      // The picture itself is stored once, as an ordinary PDF image.
+      ...(s.tool === 'image' ? { im: images++ } : {}),
+    })),
   }
   const w = new Writer()
   for (const s of strokes) {
@@ -123,7 +133,7 @@ export function decodePage(bytes: Uint8Array): PageData | null {
         pts[i + 1] = y / 100
         pts[i + 2] = p / 255
       }
-      if (CODE_TOOL[hs.t]) strokes.push({ tool: CODE_TOOL[hs.t], color: hs.c, width: hs.w, pts })
+      if (CODE_TOOL[hs.t]) strokes.push({ tool: CODE_TOOL[hs.t], color: hs.c, width: hs.w, pts, ...(hs.im !== undefined ? { imageIndex: hs.im } : {}) })
     }
     return {
       bg: BGS.has(header.bg) ? header.bg : 'blank',
@@ -148,7 +158,7 @@ export function dataToContent(notebookId: string, data: NotebookData): NotebookC
   for (const dp of data.pages) {
     const page: Page = { id: uid(), notebookId, bg: dp.bg, orient: dp.orient, rev: 0 }
     pages.push(page)
-    dp.strokes.forEach((s, seq) => strokes.push({ ...s, id: uid(), pageId: page.id, seq }))
+    dp.strokes.forEach(({ imageIndex: _i, ...s }, seq) => strokes.push({ ...s, id: uid(), pageId: page.id, seq }))
   }
   return { pages, strokes }
 }

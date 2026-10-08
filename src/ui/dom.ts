@@ -30,6 +30,7 @@ export const icons = {
   cut: svg('<circle cx="7" cy="17.5" r="2.4"/><circle cx="17" cy="17.5" r="2.4"/><path d="M8.6 15.7L17.5 4M15.4 15.7L6.5 4"/>'),
   duplicate: svg('<rect x="8" y="8" width="11" height="12" rx="1.5"/><path d="M5 16V5.5A1.5 1.5 0 016.5 4H15"/><path d="M13.5 11.5v5M11 14h5"/>'),
   paste: svg('<rect x="6" y="5" width="12" height="15" rx="1.5"/><path d="M9.5 5V4a1 1 0 011-1h3a1 1 0 011 1v1"/><path d="M9.5 11h5M9.5 14.5h5"/>'),
+  image: svg('<rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.6"/><path d="M4 17l4.5-4.5 3.5 3.5 3-3 5 5"/>'),
   undo: svg('<path d="M8 8H15a5 5 0 010 10H9"/><path d="M11 5L8 8l3 3"/>'),
   redo: svg('<path d="M16 8H9a5 5 0 000 10h6"/><path d="M13 5l3 3-3 3"/>'),
   pages: svg('<rect x="7" y="3.5" width="12" height="15" rx="1.5"/><path d="M5 7v12.5a1 1 0 001 1h10"/>'),

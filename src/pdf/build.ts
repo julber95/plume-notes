@@ -2,7 +2,7 @@
 // carrying its editable data (PieceInfo dictionary, the mechanism the PDF
 // format provides for an application's private data).
 
-import { PDFDocument, PDFName, PDFString, type PDFRef } from 'pdf-lib'
+import { PDFDocument, PDFName, PDFString, type PDFImage, type PDFRef } from 'pdf-lib'
 import { strToU8, zlibSync } from 'fflate'
 import { backgroundSpec } from '../backgrounds'
 import { centerline, hexToRgb, highlightRgb, penOutline, pencilOutline, simplify, smoothClosed } from '../geometry'
@@ -12,6 +12,8 @@ import { FORMAT_VERSION, encodePage } from './codec'
 
 export interface PdfPageInput extends Pick<Page, 'id' | 'bg' | 'orient' | 'rev'> {
   strokes: Stroke[]
+  /** Pictures of the page, when `strokes` was not loaded because the page is cached. */
+  imageStrokes?: Stroke[]
 }
 
 export interface PdfNotebookInput {
@@ -27,6 +29,8 @@ export interface PageCacheEntry {
   content: Uint8Array
   /** Editable data of the page (compressed). */
   data: Uint8Array
+  /** Ids of the page's pictures, in the order of their names ("Im0", "Im1"…). */
+  images?: string[]
 }
 
 /** Already computed page renderings, so that only modified pages are redone. */
@@ -56,10 +60,20 @@ function strokedPath(s: Stroke): string {
   return `${rgb(s.color)} RG ${num(s.width)} w\n${localPath(centerline(s.pts), 'S')}`
 }
 
+const pictures = (page: PdfPageInput) => page.strokes.filter((s) => s.tool === 'image' && s.image && s.pts.length >= 6)
+
 function pageContent(page: PdfPageInput): string {
   const { h } = pageSize(page.orient)
   let out = `q 1 0 0 -1 0 ${num(h)} cm\n`
   if (page.bg !== 'blank') out += '/Bg Do\n'
+  // Pictures first: ink and highlighter go over them.
+  pictures(page).forEach((s, i) => {
+    const x = Math.min(s.pts[0], s.pts[3])
+    const y = Math.min(s.pts[1], s.pts[4])
+    const w = Math.abs(s.pts[3] - s.pts[0])
+    const h = Math.abs(s.pts[4] - s.pts[1])
+    out += `q ${num(w)} 0 0 ${num(-h)} ${num(x)} ${num(y + h)} cm /Im${i} Do Q\n`
+  })
   out += '1 J 1 j\n'
   const highlights = page.strokes.filter((s) => s.tool === 'highlighter')
   if (highlights.length) {
@@ -119,7 +133,8 @@ export function renderPage(page: PdfPageInput): PageCacheEntry {
   return {
     rev: page.rev,
     content: zlibSync(strToU8(pageContent(page)), { level: 6 }),
-    data: zlibSync(encodePage(page, page.strokes), { level: 6 }),
+    data: zlibSync(encodePage(page, page.strokes.filter((s) => s.tool !== 'image' || pictures(page).includes(s))), { level: 6 }),
+    images: pictures(page).map((s) => s.id),
   }
 }
 
@@ -136,6 +151,7 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
 
   const highlighterState = ctx.register(ctx.obj({ Type: 'ExtGState', BM: 'Darken' }))
   const backgrounds = new Map<string, PDFRef>()
+  const embedded = new Map<Uint8Array, PDFImage>()
   // Pencil grain: a repeating pattern of specks, painted in any colour.
   let grain = ''
   const specks = grainSpecks()
@@ -186,6 +202,16 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
         backgrounds.set(key, ref)
       }
       page.node.setXObject(PDFName.of('Bg'), ref)
+    }
+    if (entry.images?.length) {
+      const byId = new Map([...p.strokes, ...(p.imageStrokes ?? [])].map((s) => [s.id, s]))
+      for (let i = 0; i < entry.images.length; i++) {
+        const bytes = byId.get(entry.images[i])?.image?.data
+        if (!bytes) continue
+        let image = embedded.get(bytes)
+        if (!image) embedded.set(bytes, (image = await doc.embedJpg(bytes)))
+        page.node.setXObject(PDFName.of(`Im${i}`), image.ref)
+      }
     }
     const data = ctx.register(ctx.stream(entry.data, flate))
     page.node.set(LastModified, stamp)

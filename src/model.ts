@@ -6,7 +6,7 @@ export const MM = 72 / 25.4
 
 export type Background = 'blank' | 'lined' | 'grid' | 'dots' | 'seyes'
 export type Orientation = 'portrait' | 'landscape'
-export type StrokeTool = 'pen' | 'pencil' | 'highlighter' | 'line'
+export type StrokeTool = 'pen' | 'pencil' | 'highlighter' | 'line' | 'image'
 
 export const BACKGROUNDS: { id: Background; label: string }[] = [
   { id: 'blank', label: 'Blank' },
@@ -23,8 +23,10 @@ export interface Stroke {
   tool: StrokeTool
   color: string
   width: number
-  /** Triplets x, y, pressure (0..1). */
+  /** Triplets x, y, pressure (0..1). For an image: its two opposite corners. */
   pts: Float32Array
+  /** Pictures placed on the page are stored like strokes, with tool 'image'. */
+  image?: { mime: string; data: Uint8Array }
 }
 
 export interface Page {

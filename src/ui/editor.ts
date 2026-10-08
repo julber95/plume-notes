@@ -95,6 +95,39 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   // Floating bar of actions for the selection (or "Paste" after a tap).
   const selBar = h('div', { class: 'sel-bar', hidden: true })
 
+  // Picture import: the file chosen is reduced if needed, then placed on the page.
+  const picker = h('input', {
+    type: 'file',
+    accept: 'image/*',
+    hidden: true,
+    onChange: async () => {
+      const file = picker.files?.[0]
+      picker.value = ''
+      if (!file) return
+      try {
+        const source = await createImageBitmap(file)
+        // At most 2000 pixels on the long side: sharp on a page, light in the PDF.
+        const scale = Math.min(1, 2000 / Math.max(source.width, source.height))
+        const sheet = document.createElement('canvas')
+        sheet.width = Math.max(1, Math.round(source.width * scale))
+        sheet.height = Math.max(1, Math.round(source.height * scale))
+        const g = sheet.getContext('2d')!
+        g.fillStyle = '#ffffff'
+        g.fillRect(0, 0, sheet.width, sheet.height)
+        g.drawImage(source, 0, 0, sheet.width, sheet.height)
+        const blob = await new Promise<Blob | null>((done) => sheet.toBlob(done, 'image/jpeg', 0.88))
+        if (!blob) throw new Error('encoding failed')
+        if (!canvas.insertImage('image/jpeg', new Uint8Array(await blob.arrayBuffer()), sheet.width, sheet.height)) throw new Error('page not ready')
+        // Ready to be moved and resized.
+        tool.kind = 'lasso'
+        saveTool()
+      } catch (e) {
+        console.error('Picture import', e)
+        toast('This picture could not be added.')
+      }
+    },
+  })
+
   const toolbar = h(
     'header',
     { class: 'toolbar' },
@@ -110,6 +143,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
         return b
       }),
     ),
+    iconButton(icons.image, 'Insert a picture', () => picker.click()),
     quick,
     h('div', { class: 'spacer' }),
     undoBtn,
@@ -125,7 +159,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     h('button', { class: 'page-pill', type: 'button', title: 'Fit to width', onClick: () => canvas.zoomBy('fit') }, 'Fit'),
     pageLabel,
   )
-  const view = h('div', { class: 'editor' }, toolbar, h('div', { class: 'editor-body' }, stage, corner, selBar, panel))
+  const view = h('div', { class: 'editor' }, toolbar, h('div', { class: 'editor-body' }, stage, corner, selBar, panel, picker))
   root.replaceChildren(view)
 
   const canvas = new InkCanvas(

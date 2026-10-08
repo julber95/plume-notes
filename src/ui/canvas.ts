@@ -100,7 +100,7 @@ const DEBUG = (() => {
 let clipboard: Stroke[] = []
 
 function plain(s: RStroke): Stroke {
-  return { id: s.id, pageId: s.pageId, seq: s.seq, tool: s.tool, color: s.color, width: s.width, pts: s.pts }
+  return { id: s.id, pageId: s.pageId, seq: s.seq, tool: s.tool, color: s.color, width: s.width, pts: s.pts, ...(s.image ? { image: s.image } : {}) }
 }
 
 function unionBox(a: BBox, b: BBox): BBox {
@@ -129,6 +129,11 @@ function shareInside(s: Stroke, poly: number[]): number {
     total++
     if (insidePolygon(x, y, poly)) inside++
   }
+  if (s.tool === 'image') {
+    // A picture: its four corners and its centre.
+    for (const [x, y] of [[p[0], p[1]], [p[3], p[1]], [p[3], p[4]], [p[0], p[4]], [(p[0] + p[3]) / 2, (p[1] + p[4]) / 2]]) visit(x, y)
+    return inside / total
+  }
   visit(p[0], p[1])
   for (let i = 3; i < p.length; i += 3) {
     // A straight line only stores its two ends: sample along it.
@@ -156,6 +161,7 @@ function roundedOutline(p: Path2D, flat: number[]): void {
 
 function strokePath(tool: Stroke['tool'], pts: ArrayLike<number>, width: number, complete: boolean): Path2D {
   const p = new Path2D()
+  if (tool === 'image') return p
   if (tool === 'pen' || tool === 'pencil') {
     roundedOutline(p, tool === 'pencil' ? pencilOutline(pts, width) : penOutline(pts, width, complete))
     return p
@@ -167,6 +173,12 @@ function strokePath(tool: Stroke['tool'], pts: ArrayLike<number>, width: number,
   if (flat.length === 2) p.lineTo(flat[0] + 0.01, flat[1])
   return p
 }
+
+/** Decoded pictures, by their bytes (null while decoding). */
+const bitmaps = new WeakMap<Uint8Array, ImageBitmap | null>()
+
+/** Drawing order: pictures at the bottom, then highlighter, then ink. */
+const layerOf = (s: Stroke) => (s.tool === 'image' ? 0 : s.tool === 'highlighter' ? 1 : 2)
 
 const grainCache = new Map<string, CanvasPattern>()
 
@@ -547,12 +559,16 @@ export class InkCanvas {
     if (pv.strokes) {
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
-      for (const pass of [0, 1]) {
+      for (const pass of [0, 1, 2]) {
         for (const s of pv.strokes) {
-          if ((s.tool === 'highlighter') !== (pass === 0)) continue
+          if (layerOf(s) !== pass) continue
           if (this.hidden?.has(s.id)) continue
           const b = s.bbox
           if (clip && (b[2] < clip[0] || b[0] > clip[2] || b[3] < clip[1] || b[1] > clip[3])) continue
+          if (pass === 0) {
+            this.paintImage(ctx, s)
+            continue
+          }
           if (!s.path) {
             if (performance.now() > deadline) {
               complete = false
@@ -660,7 +676,36 @@ export class InkCanvas {
     }
   }
 
+  /** Draws a picture (a grey placeholder until it is decoded). */
+  private paintImage(ctx: CanvasRenderingContext2D, s: Stroke): void {
+    const data = s.image?.data
+    if (!data || s.pts.length < 6) return
+    const x = Math.min(s.pts[0], s.pts[3])
+    const y = Math.min(s.pts[1], s.pts[4])
+    const w = Math.abs(s.pts[3] - s.pts[0])
+    const h = Math.abs(s.pts[4] - s.pts[1])
+    const bitmap = bitmaps.get(data)
+    if (bitmap) {
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(bitmap, x, y, w, h)
+      return
+    }
+    ctx.fillStyle = '#eef0f3'
+    ctx.fillRect(x, y, w, h)
+    if (bitmap === undefined) {
+      bitmaps.set(data, null)
+      createImageBitmap(new Blob([data as BlobPart], { type: s.image!.mime }))
+        .then((decoded) => {
+          bitmaps.set(data, decoded)
+          for (const pv of this.pages) pv.cacheValid = false
+          this.invalidate()
+        })
+        .catch((e) => console.error('Picture decoding', e))
+    }
+  }
+
   private paint(ctx: CanvasRenderingContext2D, s: Pick<RStroke, 'tool' | 'color' | 'width' | 'level'>, path: Path2D): void {
+    if (s.tool === 'image') return
     if (s.tool === 'pen') {
       ctx.fillStyle = s.color
       ctx.fill(path)
@@ -800,10 +845,11 @@ export class InkCanvas {
         ctx.translate(-t.ax, -t.ay)
         ctx.lineCap = 'round'
         ctx.lineJoin = 'round'
-        for (const pass of [0, 1]) {
+        for (const pass of [0, 1, 2]) {
           for (const s of sel.pv.strokes) {
-            if (!this.hidden.has(s.id) || (s.tool === 'highlighter') !== (pass === 0)) continue
-            this.paint(ctx, s, (s.path ??= buildPath(s)))
+            if (!this.hidden.has(s.id) || layerOf(s) !== pass) continue
+            if (pass === 0) this.paintImage(ctx, s)
+            else this.paint(ctx, s, (s.path ??= buildPath(s)))
           }
         }
         ctx.restore()
@@ -881,8 +927,13 @@ export class InkCanvas {
 
   private finishLasso(a: Extract<Action, { type: 'lasso' }>, e: PointerEvent): void {
     if (Math.hypot(e.clientX - a.startX, e.clientY - a.startY) < 8 && a.pts.length < 16) {
-      // A simple tap: offer to paste here.
       const w = this.world(e)
+      // A tap on a picture selects it.
+      const px = w.x - a.pv.x
+      const py = w.y - a.pv.y
+      const picture = [...(a.pv.strokes ?? [])].reverse().find((s) => s.tool === 'image' && px >= s.bbox[0] && px <= s.bbox[2] && py >= s.bbox[1] && py <= s.bbox[3])
+      if (picture) return this.select(a.pv, [picture])
+      // Elsewhere: offer to paste here.
       const r = this.front.getBoundingClientRect()
       this.pasteTarget = { pv: a.pv, x: w.x - a.pv.x, y: w.y - a.pv.y }
       this.host.onLassoTap(e.clientX - r.left, e.clientY - r.top, clipboard.length > 0)
@@ -977,7 +1028,7 @@ export class InkCanvas {
   }
 
   recolorSelection(color: string): void {
-    this.replaceSelected((s) => ({ ...plain(s), color }))
+    this.replaceSelected((s) => (s.tool === 'image' ? plain(s) : { ...plain(s), color }))
   }
 
   deleteSelection(): void {
@@ -1016,6 +1067,37 @@ export class InkCanvas {
     this.select(pv, copies, loop)
     this.markDirty(pv, this.selection!.box)
     this.host.onChange({ added: copies.map(plain), removed: [] })
+  }
+
+  /**
+   * Places a picture on the page in view, in the middle of what is visible,
+   * and selects it so it can be moved and resized straight away.
+   */
+  insertImage(mime: string, data: Uint8Array, pixelWidth: number, pixelHeight: number): boolean {
+    const pv = this.pages[this.currentPageIndex()]
+    if (!pv?.strokes || !pixelWidth || !pixelHeight) return false
+    this.clearSelection()
+    const fit = Math.min((pv.w * 0.6) / pixelWidth, (pv.h * 0.5) / pixelHeight, 0.75)
+    const w = pixelWidth * fit
+    const h = pixelHeight * fit
+    const cx = Math.min(pv.w - w / 2 - 10, Math.max(w / 2 + 10, (this.cssW / 2 - this.tx) / this.zoom - pv.x))
+    const cy = Math.min(pv.h - h / 2 - 10, Math.max(h / 2 + 10, (this.cssH / 2 - this.ty) / this.zoom - pv.y))
+    this.lastSeq = Math.max(this.lastSeq + 1, Date.now())
+    const picture = toR({
+      id: uid(),
+      pageId: pv.page.id,
+      seq: this.lastSeq,
+      tool: 'image',
+      color: '',
+      width: 0,
+      pts: Float32Array.from([cx - w / 2, cy - h / 2, 0, cx + w / 2, cy + h / 2, 0]),
+      image: { mime, data },
+    })
+    pv.strokes.push(picture)
+    this.select(pv, [picture])
+    this.markDirty(pv, picture.bbox)
+    this.host.onChange({ added: [plain(picture)], removed: [] })
+    return true
   }
 
   duplicateSelection(): void {
@@ -1395,7 +1477,7 @@ export class InkCanvas {
     const stroke: Stroke = { id: uid(), pageId: a.pv.page.id, seq: this.lastSeq, tool: a.kind, color: tool.color, width: tool.width, pts: Float32Array.from(pts) }
     const rs = toR(stroke)
     if ((a.kind === 'pen' || a.kind === 'pencil') && this.tool.scribbleErase && isScribble(stroke.pts)) {
-      const targets = scribbleTargets(stroke, a.pv.strokes!)
+      const targets = scribbleTargets(stroke, a.pv.strokes!.filter((s) => s.tool !== 'image'))
       if (targets.length) {
         // A scribble over existing ink: erase what it covers, and do not keep it.
         const gone = new Set(targets.map((t) => t.id))
@@ -1450,7 +1532,8 @@ export class InkCanvas {
     const next: RStroke[] = []
     for (const s of pv.strokes) {
       const b = s.bbox
-      if (x + r < b[0] || x - r > b[2] || y + r < b[1] || y - r > b[3]) {
+      // Pictures are not erased by the eraser: select them to delete them.
+      if (s.tool === 'image' || x + r < b[0] || x - r > b[2] || y + r < b[1] || y - r > b[3]) {
         next.push(s)
         continue
       }

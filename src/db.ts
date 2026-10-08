@@ -311,11 +311,12 @@ export interface PdfCacheRecord {
   rev: number
   content: Uint8Array
   data: Uint8Array
+  images?: string[]
 }
 
 export interface NotebookSnapshot {
   node: LibNode
-  pages: (Page & { strokes: Stroke[]; cached?: PdfCacheRecord })[]
+  pages: (Page & { strokes: Stroke[]; cached?: PdfCacheRecord; imageStrokes?: Stroke[] })[]
 }
 
 /** Consistent read of a whole notebook (for PDF export). */
@@ -337,7 +338,13 @@ export function snapshotNotebook(notebookId: string): Promise<NotebookSnapshot |
         strokes = (await req(t.objectStore('strokes').index('pageId').getAll(id))) as Stroke[]
         strokes.sort((a, b) => a.seq - b.seq)
       }
-      pages.push({ ...p, strokes, cached })
+      // A cached page still needs its pictures, which are embedded at every export.
+      const imageStrokes: Stroke[] = []
+      for (const sid of cached?.images ?? []) {
+        const s = (await req(t.objectStore('strokes').get(sid))) as Stroke | undefined
+        if (s) imageStrokes.push(s)
+      }
+      pages.push({ ...p, strokes, cached, imageStrokes })
     }
     return { node, pages }
   })

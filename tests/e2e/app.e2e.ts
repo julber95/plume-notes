@@ -611,5 +611,118 @@ describe('Plume in the browser', () => {
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
   })
+
+  it('places a picture on the page, movable and resizable, kept in the PDF and on other devices', async () => {
+    const tab = await device()
+    const { page, cdp } = tab
+    await page.locator('.sync-chip').click()
+    await page.getByRole('button', { name: 'Sign in to OneDrive' }).click()
+    await page.waitForFunction(() => document.querySelector('.sync-chip')?.getAttribute('data-state') === 'ok')
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByLabel('Name').fill('Pictures')
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('canvas.ink').waitFor()
+    await settle(page)
+
+    // A test picture, made in the browser: a photo-like gradient with a shape on it.
+    const jpeg = await page.evaluate(() => {
+      const c = document.createElement('canvas')
+      c.width = 800
+      c.height = 500
+      const g = c.getContext('2d')!
+      const grad = g.createLinearGradient(0, 0, 800, 500)
+      grad.addColorStop(0, '#2b4c8c')
+      grad.addColorStop(1, '#f0b429')
+      g.fillStyle = grad
+      g.fillRect(0, 0, 800, 500)
+      g.fillStyle = '#ffffff'
+      g.beginPath()
+      g.arc(400, 250, 120, 0, 7)
+      g.fill()
+      return c.toDataURL('image/jpeg', 0.9).split(',')[1]
+    })
+    writeFileSync(`${OUT}test-picture.jpg`, Buffer.from(jpeg, 'base64'))
+    await page.locator('input[type=file]').setInputFiles(`${OUT}test-picture.jpg`)
+    await page.locator('.sel-bar').waitFor()
+
+    const elements = (p: Page) =>
+      p.evaluate(
+        () =>
+          new Promise<{ tool: string; bytes: number; box: number[] }[]>((resolve) => {
+            const open = indexedDB.open('plume')
+            open.onsuccess = () => {
+              const tx = open.result.transaction(['nodes', 'strokes'])
+              const nodes = tx.objectStore('nodes').getAll()
+              const req = tx.objectStore('strokes').getAll()
+              req.onsuccess = () => {
+                open.result.close()
+                // Only this notebook: the device also holds the ones synced from OneDrive.
+                const pages = new Set((nodes.result as { name: string; pageIds?: string[] }[]).find((n) => n.name === 'Pictures')?.pageIds)
+                const list = (req.result as { tool: string; seq: number; pageId: string; pts: Float32Array; image?: { data: Uint8Array } }[]).filter((s) => pages.has(s.pageId)).sort((a, b) => a.seq - b.seq)
+                resolve(list.map((s) => ({ tool: s.tool, bytes: s.image?.data.length ?? 0, box: s.tool === 'image' ? [s.pts[0], s.pts[1], s.pts[3], s.pts[4]] : [] })))
+              }
+            }
+          }),
+      )
+    const zoom = (1280 - 36) / 595.28
+    const sx = (x: number) => 640 - (595.28 / 2) * zoom + x * zoom
+    const sy = (y: number) => 48 + 14 * zoom + y * zoom
+    const drag = (from: [number, number], to: [number, number]): Pt[] => Array.from({ length: 11 }, (_, i) => [from[0] + ((to[0] - from[0]) * i) / 10, from[1] + ((to[1] - from[1]) * i) / 10, 0.4])
+
+    const [placed] = await elements(page)
+    expect(placed.tool).toBe('image')
+    expect(placed.bytes).toBeGreaterThan(2000)
+    const ratio = (b: number[]) => (b[2] - b[0]) / (b[3] - b[1])
+    expect(ratio(placed.box)).toBeCloseTo(800 / 500, 2)
+    await shot(page, '18-picture-placed')
+
+    // Move it by dragging its middle, then shrink it with the handle.
+    const [x0, y0, x1, y1] = placed.box
+    await pen(cdp, drag([sx((x0 + x1) / 2), sy((y0 + y1) / 2)], [sx((x0 + x1) / 2) + 80, sy((y0 + y1) / 2) + 40]))
+    await settle(page)
+    const [moved] = await elements(page)
+    expect(moved.box[0] - x0).toBeCloseTo(80 / zoom, 0)
+    const m = 5
+    const [a0, b0, a1, b1] = [moved.box[0] - m, moved.box[1] - m, moved.box[2] + m, moved.box[3] + m]
+    await pen(cdp, drag([sx(a1), sy(b1)], [sx(a0 + (a1 - a0) * 0.6), sy(b0 + (b1 - b0) * 0.6)]))
+    await settle(page)
+    const [small] = await elements(page)
+    expect((small.box[2] - small.box[0]) / (moved.box[2] - moved.box[0])).toBeCloseTo(0.6, 1)
+    expect(ratio(small.box)).toBeCloseTo(800 / 500, 2) // proportions kept
+
+    // Write over the picture: ink goes on top, and the eraser leaves the picture alone.
+    await page.getByRole('button', { name: 'Pen', exact: true }).click()
+    await pen(cdp, scribble(sx(small.box[0]) + 10, sy((small.box[1] + small.box[3]) / 2), 120))
+    await page.getByRole('button', { name: 'Eraser', exact: true }).click()
+    await pen(cdp, [[sx(small.box[0]) + 5, sy(small.box[1]) + 5], [sx(small.box[0]) + 30, sy(small.box[1]) + 8]])
+    await settle(page)
+    expect((await elements(page)).map((e) => e.tool)).toEqual(['image', 'pen'])
+    await shot(page, '19-picture-annotated')
+
+    // In the PDF: the picture is there, and comes back as an editable element.
+    await page.getByRole('button', { name: 'Back to library' }).click()
+    await expect.poll(() => drive.find('Plume/Pictures.pdf')?.content?.length ?? 0, { timeout: 15_000 }).toBeGreaterThan(5000)
+    await expect.poll(async () => (await extractPlumeData(drive.find('Plume/Pictures.pdf')!.content!))!.pages[0].strokes.length, { timeout: 15_000 }).toBe(2)
+    writeFileSync(`${OUT}pictures.pdf`, drive.find('Plume/Pictures.pdf')!.content!)
+    const data = await extractPlumeData(drive.find('Plume/Pictures.pdf')!.content!)
+    const kept = data!.pages[0].strokes[0]
+    expect(kept.tool).toBe('image')
+    expect(kept.image!.data.length).toBe(placed.bytes)
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
+
+    const pc = await device(1600, 900)
+    await pc.page.locator('.sync-chip').click()
+    await pc.page.getByRole('button', { name: 'Sign in to OneDrive' }).click()
+    // Wait until the notebook has been downloaded (its card then shows its page count).
+    await pc.page.locator('.card.notebook', { hasText: 'Pictures' }).filter({ hasText: '1 page' }).click()
+    await pc.page.locator('canvas.ink').waitFor()
+    await settle(pc.page, 800)
+    const there = await elements(pc.page)
+    expect(there.filter((e) => e.tool === 'image').map((e) => e.bytes)).toEqual([placed.bytes])
+    await shot(pc.page, '20-picture-other-device')
+    expect(pc.errors).toEqual([])
+    await pc.ctx.close()
+  })
 })
 
