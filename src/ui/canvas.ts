@@ -215,6 +215,14 @@ export class InkCanvas {
   private fctx: CanvasRenderingContext2D
   private back: HTMLCanvasElement
   private bctx: CanvasRenderingContext2D
+  /**
+   * Each image is composed here first (pages, then the stroke in progress and
+   * the other overlays) and only then copied to the screen in one go. Drawing
+   * the steps straight on the screen lets it show them one by one: the stroke
+   * in progress would blink, which is most visible with the wide highlighter.
+   */
+  private comp: HTMLCanvasElement
+  private cctx: CanvasRenderingContext2D
   private dpr = 1
   private cssW = 0
   private cssH = 0
@@ -281,6 +289,8 @@ export class InkCanvas {
     // latency with a stylus), when the device allows it.
     this.fctx = this.front.getContext('2d', { alpha: false, desynchronized: true })!
     this.bctx = this.back.getContext('2d', { alpha: false })!
+    this.comp = document.createElement('canvas')
+    this.cctx = this.comp.getContext('2d', { alpha: false })!
     container.appendChild(this.front)
 
     const f = this.front
@@ -366,7 +376,7 @@ export class InkCanvas {
     this.cssW = r.width
     this.cssH = r.height
     this.dpr = Math.min(window.devicePixelRatio || 1, 3)
-    for (const c of [this.front, this.back]) {
+    for (const c of [this.front, this.back, this.comp]) {
       c.width = Math.round(r.width * this.dpr)
       c.height = Math.round(r.height * this.dpr)
     }
@@ -788,7 +798,7 @@ export class InkCanvas {
 
   /** Copies `back` to the screen then draws what is provisional. */
   private present(): void {
-    const ctx = this.fctx
+    const ctx = this.cctx
     ctx.setTransform(1, 0, 0, 1, 0, 0)
     ctx.drawImage(this.back, 0, 0)
     const a = this.action
@@ -806,6 +816,9 @@ export class InkCanvas {
       ctx.stroke()
     }
     this.drawSelection(ctx)
+    // The finished image goes to the screen in a single copy.
+    this.fctx.setTransform(1, 0, 0, 1, 0, 0)
+    this.fctx.drawImage(this.comp, 0, 0)
   }
 
   // ---------- Selection (lasso) ----------
@@ -1119,9 +1132,9 @@ export class InkCanvas {
     return kind === 'highlighter' ? this.tool.highlighter : kind === 'pencil' ? this.tool.pencil : this.tool.pen
   }
 
-  /** Draws the stroke in progress on the screen; returns the area it covers (device pixels). */
+  /** Draws the stroke in progress on the image being composed; returns the area it covers (device pixels). */
   private paintLive(a: Extract<Action, { type: 'draw' }>): BBox {
-    const ctx = this.fctx
+    const ctx = this.cctx
     const tool = this.settingsFor(a.kind)
     const kind = a.shape ? 'line' : a.kind
     const pts = a.shape ?? (a.kind === 'line' ? a.pts.slice(0, 3).concat(a.tail) : a.pts.concat(a.tail, a.predicted))
@@ -1175,15 +1188,27 @@ export class InkCanvas {
     const a = this.action
     if (a?.type !== 'draw' || !this.liveBox) return
     const t0 = performance.now()
-    const b = this.liveBox
-    const x = Math.max(0, b[0])
-    const y = Math.max(0, b[1])
-    const w = Math.min(this.back.width, b[2]) - x
-    const h = Math.min(this.back.height, b[3]) - y
-    const ctx = this.fctx
+    const old = this.liveBox
+    const W = this.back.width
+    const H = this.back.height
+    // Off screen: put back the page where the stroke was, then draw it anew.
+    const ctx = this.cctx
     ctx.setTransform(1, 0, 0, 1, 0, 0)
-    if (w > 0 && h > 0) ctx.drawImage(this.back, x, y, w, h, x, y, w, h)
-    this.liveBox = this.paintLive(a)
+    const ox = Math.max(0, old[0])
+    const oy = Math.max(0, old[1])
+    const ow = Math.min(W, old[2]) - ox
+    const oh = Math.min(H, old[3]) - oy
+    if (ow > 0 && oh > 0) ctx.drawImage(this.back, ox, oy, ow, oh, ox, oy, ow, oh)
+    const now = (this.liveBox = this.paintLive(a))
+    // Then one copy to the screen, covering both the old and the new extent.
+    const x = Math.max(0, Math.min(old[0], now[0]))
+    const y = Math.max(0, Math.min(old[1], now[1]))
+    const w = Math.min(W, Math.max(old[2], now[2])) - x
+    const h = Math.min(H, Math.max(old[3], now[3])) - y
+    if (w > 0 && h > 0) {
+      this.fctx.setTransform(1, 0, 0, 1, 0, 0)
+      this.fctx.drawImage(this.comp, x, y, w, h, x, y, w, h)
+    }
     this.liveAt = performance.now()
     this.liveCost = this.liveCost * 0.7 + (this.liveAt - t0) * 0.3
     if (DEBUG) performance.measure('plume-live', { start: t0 })
@@ -1407,7 +1432,9 @@ export class InkCanvas {
     // When raw updates are available the points were already recorded there.
     if (!a.raw) this.addDrawPoints(a, e)
     a.predicted = []
-    if (a.kind !== 'line' && !a.shape) {
+    // Guessed positions ahead of the pen: for ink only. On the wide highlighter
+    // a wrong guess shows as a wobbling end.
+    if ((a.kind === 'pen' || a.kind === 'pencil') && !a.shape) {
       const mouse = e.pointerType === 'mouse'
       for (const ev of e.getPredictedEvents?.() ?? []) {
         const w = this.world(ev)
