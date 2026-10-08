@@ -57,7 +57,7 @@ interface PageView {
 }
 
 type Action =
-  | { type: 'draw'; pointerId: number; pv: PageView; kind: 'pen' | 'highlighter' | 'line'; pts: number[]; tail: number[]; predicted: number[]; raw: boolean; shape: number[] | null; holdX: number; holdY: number; holdTimer: number }
+  | { type: 'draw'; pointerId: number; pv: PageView; kind: 'pen' | 'highlighter' | 'line'; pts: number[]; tail: number[]; predicted: number[]; raw: boolean; shape: number[] | null; resize: { base: number[]; cx: number; cy: number; reach: number; active: boolean } | null; holdX: number; holdY: number; holdTimer: number }
   | { type: 'erase'; pointerId: number; lastX: number; lastY: number; removed: Map<string, Stroke>; added: Map<string, RStroke> }
   | { type: 'pan'; pointerId: number; lastX: number; lastY: number }
   | { type: 'tapAdd'; pointerId: number }
@@ -713,8 +713,24 @@ export class InkCanvas {
   }
 
   private addDrawPoints(a: Extract<Action, { type: 'draw' }>, e: PointerEvent): void {
-    // Once the stroke has become a shape, it no longer follows the pen.
-    if (a.shape) return
+    if (a.shape) {
+      // The stroke has become a shape and no longer follows the pen. A closed
+      // shape can still be resized: moving away from its centre enlarges it,
+      // moving towards the centre shrinks it.
+      const r = a.resize
+      if (r) {
+        const w = this.world(e)
+        // The small tremor of a pen held still must not make the shape quiver.
+        if (!r.active && Math.hypot(w.x - a.holdX, w.y - a.holdY) < 6 / this.zoom) return
+        r.active = true
+        const k = Math.max(0.1, Math.hypot(w.x - a.pv.x - r.cx, w.y - a.pv.y - r.cy) / r.reach)
+        for (let i = 0; i < r.base.length; i += 3) {
+          a.shape[i] = r.cx + (r.base[i] - r.cx) * k
+          a.shape[i + 1] = r.cy + (r.base[i + 1] - r.cy) * k
+        }
+      }
+      return
+    }
     const events = e.getCoalescedEvents?.() ?? []
     if (!events.length) events.push(e)
     if (a.kind === 'pen' && this.tool.shapeHold) {
@@ -767,6 +783,23 @@ export class InkCanvas {
     if (!shape) return
     a.shape = []
     for (let i = 0; i < shape.points.length; i += 2) a.shape.push(shape.points[i], shape.points[i + 1], 0.5)
+    if (shape.kind === 'rectangle' || shape.kind === 'quad' || shape.kind === 'triangle' || shape.kind === 'ellipse') {
+      // Centre of the shape, and how far from it the pen is right now.
+      let sx0 = Infinity
+      let sy0 = Infinity
+      let sx1 = -Infinity
+      let sy1 = -Infinity
+      for (let i = 0; i < a.shape.length; i += 3) {
+        sx0 = Math.min(sx0, a.shape[i])
+        sx1 = Math.max(sx1, a.shape[i])
+        sy0 = Math.min(sy0, a.shape[i + 1])
+        sy1 = Math.max(sy1, a.shape[i + 1])
+      }
+      const cx = (sx0 + sx1) / 2
+      const cy = (sy0 + sy1) / 2
+      const reach = Math.hypot(a.holdX - a.pv.x - cx, a.holdY - a.pv.y - cy)
+      if (reach > 4) a.resize = { base: a.shape.slice(), cx, cy, reach, active: false }
+    }
     a.predicted = []
     navigator.vibrate?.(12)
     this.drawLive()
@@ -824,7 +857,7 @@ export class InkCanvas {
     }
     if (!pv.strokes) return
     const p = mouse ? 0.5 : e.pressure || 0.5
-    this.action = { type: 'draw', pointerId: e.pointerId, pv, kind, pts: [w.x - pv.x, w.y - pv.y, p], tail: [], predicted: [], raw: false, shape: null, holdX: w.x, holdY: w.y, holdTimer: 0 }
+    this.action = { type: 'draw', pointerId: e.pointerId, pv, kind, pts: [w.x - pv.x, w.y - pv.y, p], tail: [], predicted: [], raw: false, shape: null, resize: null, holdX: w.x, holdY: w.y, holdTimer: 0 }
     this.schedule()
   }
 

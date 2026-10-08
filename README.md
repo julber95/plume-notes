@@ -21,7 +21,8 @@ recent browser on a computer.
   (can be switched off in the pen settings).
 - Clean shapes: hold the pen still at the end of a stroke and it becomes a
   straight line, rectangle, square, triangle, circle, ellipse or smooth curve
-  (can be switched off in the pen settings).
+  (can be switched off in the pen settings). While still holding, move the pen
+  to enlarge or shrink a closed shape.
 - Page management: add, duplicate, move, delete, change the background.
 - Palm rejection; scroll and zoom with fingers; mouse on a computer.
 - Every stroke saved locally at once; works offline.

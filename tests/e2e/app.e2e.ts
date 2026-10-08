@@ -428,16 +428,29 @@ describe('Plume in the browser', () => {
     await pen(cdp, [...along([340, 400], [600, 404]), ...along([600, 404], [598, 540]), ...along([598, 540], [338, 536]), ...along([338, 536], [341, 402])], { lift: false })
     await page.waitForTimeout(700)
     await release(341, 402)
+    // A smaller rectangle, held, then enlarged by moving the pen away from its centre before lifting.
+    await pen(cdp, [...along([700, 150], [860, 152], 20), ...along([860, 152], [858, 250], 14), ...along([858, 250], [699, 248], 20), ...along([699, 248], [700, 151], 14)], { lift: false })
+    await page.waitForTimeout(700)
+    for (let i = 1; i <= 10; i++) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 700 - 9.4 * i, y: 150 - 6 * i, button: 'left', buttons: 1, pointerType: 'pen', force: 0.4 })
+    await release(606, 90)
     await settle(page)
     await shot(page, '14-shapes')
 
-    const [line, free, rect] = await strokes()
+    const [line, free, rect, big] = await strokes()
     expect([line.tool, line.points]).toEqual(['line', 2])
     expect(line.xy[1]).toBe(line.xy[3]) // level
     expect(free.tool).toBe('pen')
     expect(free.points).toBeGreaterThan(20)
     expect([rect.tool, rect.points]).toEqual(['line', 5])
     expect([rect.xy[1], rect.xy[2]]).toEqual([rect.xy[3], rect.xy[4]]) // top side level, right side upright
+    // Drawn 160 px wide against 260 px, then enlarged about 2.2 times: it ends up the wider of the two.
+    expect([big.tool, big.points]).toEqual(['line', 5])
+    const ratio = (big.xy[2] - big.xy[0]) / (rect.xy[2] - rect.xy[0])
+    expect(ratio).toBeGreaterThan(1.2)
+    expect(ratio).toBeLessThan(1.5)
+    expect(big.xy[1]).toBe(big.xy[3]) // still a clean rectangle
+    // Its centre has not moved.
+    expect(Math.abs((big.xy[0] + big.xy[2]) / 2 - ((rect.xy[0] + rect.xy[2]) / 2) * (780 / 470))).toBeLessThan(8)
 
     // The precise eraser cuts a shape without flattening what remains.
     await page.getByRole('button', { name: 'Eraser', exact: true }).click()
@@ -447,7 +460,7 @@ describe('Plume in the browser', () => {
     await pen(cdp, [[470, 390], [470, 415]])
     await settle(page)
     const after = await strokes()
-    expect(after.length).toBe(4)
+    expect(after.length).toBe(5)
     expect(after.filter((s) => s.tool === 'line' && s.points > 2).length).toBeGreaterThan(0)
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
