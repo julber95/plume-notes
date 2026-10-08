@@ -588,19 +588,21 @@ describe('Plume in the browser', () => {
     expect(sx(centre)).toBeGreaterThan(880)
     expect(sx(centre)).toBeLessThan(920)
 
-    // Resize the pasted copy by its bottom-right corner, to one and a half times its size.
+    // Resize the pasted copy with the handle at the bottom-right of its outline, to one and a half times its size.
     const w = copy[0].width
-    const left = Math.min(...copy.map((s) => s.x0)) - w
-    const top = Math.min(...copy.map((s) => s.y0)) - w
-    const right = Math.max(...copy.map((s) => s.x1)) + w
-    const bottom = Math.max(...copy.map((s) => s.y1)) + w
+    const margin = 5 // the outline of a pasted selection sits 5 pt around the strokes
+    const left = Math.min(...copy.map((s) => s.x0)) - w - margin
+    const top = Math.min(...copy.map((s) => s.y0)) - w - margin
+    const right = Math.max(...copy.map((s) => s.x1)) + w + margin
+    const bottom = Math.max(...copy.map((s) => s.y1)) + w + margin
     await pen(cdp, drag([sx(right), sy(bottom)], [sx(left + (right - left) * 1.5), sy(top + (bottom - top) * 1.5)]))
     await settle(page)
     await shot(page, '17-selection-resized')
     const resized = (await all()).slice(4)
     expect(resized[0].width / w).toBeGreaterThan(1.4)
     expect(resized[0].width / w).toBeLessThan(1.6)
-    expect(Math.min(...resized.map((s) => s.x0)) - resized[0].width).toBeCloseTo(left, 0) // the opposite corner stayed put
+    // The top-left of the outline stayed put.
+    expect(Math.min(...resized.map((s) => s.x0)) - resized[0].width).toBeCloseTo(left + margin * (resized[0].width / w), 0)
 
     // Undo brings back the previous size.
     await page.getByRole('button', { name: 'Undo' }).click()

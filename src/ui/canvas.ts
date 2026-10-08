@@ -225,8 +225,12 @@ export class InkCanvas {
   private dirty: { pv: PageView; box: BBox } | null = null
   /** Screen area (device pixels) covered by the stroke in progress at its last drawing. */
   private liveBox: BBox | null = null
-  /** Strokes selected with the lasso, and the box around them (page coordinates). */
-  private selection: { pv: PageView; ids: Set<string>; box: BBox } | null = null
+  /**
+   * Strokes selected with the lasso (page coordinates): `loop` is the outline
+   * drawn by hand around them, `box` the area the strokes cover and `frame`
+   * the area covered by the loop and the strokes together.
+   */
+  private selection: { pv: PageView; ids: Set<string>; box: BBox; loop: number[]; frame: BBox } | null = null
   /** Move or resize in progress: p' = anchor + (p - anchor) * k + (dx, dy). */
   private xform: { dx: number; dy: number; k: number; ax: number; ay: number } | null = null
   /** Selected strokes while they are being dragged: drawn on top, not with the page. */
@@ -761,21 +765,20 @@ export class InkCanvas {
 
   // ---------- Selection (lasso) ----------
 
-  /** Draws the lasso being traced, the selected strokes being dragged, and the selection box. */
+  /** Draws the lasso being traced, the selected strokes being dragged, and the loop around the selection. */
   private drawSelection(ctx: CanvasRenderingContext2D): void {
     const a = this.action
     const dash = [5 / this.zoom, 4 / this.zoom]
     if (a?.type === 'lasso' && a.pts.length >= 4) {
+      // Only the line drawn by hand: it closes by itself when the pen lifts.
       this.pageTransform(ctx, a.pv)
       ctx.beginPath()
       ctx.moveTo(a.pts[0], a.pts[1])
       for (let i = 2; i < a.pts.length; i += 2) ctx.lineTo(a.pts[i], a.pts[i + 1])
-      ctx.closePath()
-      ctx.fillStyle = 'rgba(43, 76, 140, 0.06)'
-      ctx.fill()
       ctx.setLineDash(dash)
+      ctx.lineJoin = 'round'
       ctx.strokeStyle = SELECT_COLOR
-      ctx.lineWidth = 1.3 / this.zoom
+      ctx.lineWidth = 1.4 / this.zoom
       ctx.stroke()
       ctx.setLineDash([])
     }
@@ -783,6 +786,8 @@ export class InkCanvas {
     let rect: { x: number; y: number; w: number; h: number } | null = null
     if (sel) {
       const t = this.xform ?? { dx: 0, dy: 0, k: 1, ax: 0, ay: 0 }
+      const mx = (x: number) => t.ax + (x - t.ax) * t.k + t.dx
+      const my = (y: number) => t.ay + (y - t.ay) * t.k + t.dy
       this.pageTransform(ctx, sel.pv)
       if (this.hidden && sel.pv.strokes) {
         // Strokes being moved or resized: the same drawing, shifted and scaled.
@@ -803,25 +808,37 @@ export class InkCanvas {
         }
         ctx.restore()
       }
-      const x0 = t.ax + (sel.box[0] - t.ax) * t.k + t.dx
-      const y0 = t.ay + (sel.box[1] - t.ay) * t.k + t.dy
-      const x1 = t.ax + (sel.box[2] - t.ax) * t.k + t.dx
-      const y1 = t.ay + (sel.box[3] - t.ay) * t.k + t.dy
+      // The loop drawn by hand stays around the selection and follows it.
+      ctx.beginPath()
+      ctx.moveTo(mx(sel.loop[0]), my(sel.loop[1]))
+      for (let i = 2; i < sel.loop.length; i += 2) ctx.lineTo(mx(sel.loop[i]), my(sel.loop[i + 1]))
+      ctx.closePath()
+      ctx.fillStyle = 'rgba(43, 76, 140, 0.05)'
+      ctx.fill()
       ctx.setLineDash(dash)
+      ctx.lineJoin = 'round'
       ctx.strokeStyle = SELECT_COLOR
-      ctx.lineWidth = 1.3 / this.zoom
-      ctx.strokeRect(x0, y0, x1 - x0, y1 - y0)
+      ctx.lineWidth = 1.4 / this.zoom
+      ctx.stroke()
       ctx.setLineDash([])
-      const r = 4.5 / this.zoom
-      ctx.fillStyle = '#ffffff'
-      for (const [hx, hy] of [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) {
-        ctx.beginPath()
-        ctx.arc(hx, hy, r, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.stroke()
-      }
+      // Resize handle, at the bottom-right of the loop.
+      const hx = mx(sel.frame[2])
+      const hy = my(sel.frame[3])
+      ctx.beginPath()
+      ctx.arc(hx, hy, 6.5 / this.zoom, 0, Math.PI * 2)
+      ctx.fillStyle = SELECT_COLOR
+      ctx.fill()
+      ctx.strokeStyle = '#ffffff'
+      ctx.lineWidth = 1.6 / this.zoom
+      ctx.stroke()
+      ctx.beginPath()
+      const q = 2.6 / this.zoom
+      ctx.moveTo(hx - q, hy - q)
+      ctx.lineTo(hx + q, hy + q)
+      ctx.stroke()
       if (!this.xform) {
-        rect = { x: this.tx + (sel.pv.x + x0) * this.zoom, y: this.ty + (sel.pv.y + y0) * this.zoom, w: (x1 - x0) * this.zoom, h: (y1 - y0) * this.zoom }
+        const f = sel.frame
+        rect = { x: this.tx + (sel.pv.x + f[0]) * this.zoom, y: this.ty + (sel.pv.y + f[1]) * this.zoom, w: (f[2] - f[0]) * this.zoom, h: (f[3] - f[1]) * this.zoom }
       }
     }
     const key = rect ? `${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.w)},${Math.round(rect.h)}` : ''
@@ -836,15 +853,14 @@ export class InkCanvas {
     if (sel) {
       const x = w.x - sel.pv.x
       const y = w.y - sel.pv.y
-      const b = sel.box
-      const grab = 18 / this.zoom
-      // A corner resizes the selection, keeping the opposite corner in place.
-      for (const [cx, cy, ox, oy] of [[b[0], b[1], b[2], b[3]], [b[2], b[1], b[0], b[3]], [b[2], b[3], b[0], b[1]], [b[0], b[3], b[2], b[1]]]) {
-        if (Math.hypot(x - cx, y - cy) > grab) continue
-        this.beginTransform(e, 'scale', x, y, ox, oy, Math.max(1, Math.hypot(x - ox, y - oy)))
+      const f = sel.frame
+      // The handle resizes the selection, keeping its top-left in place.
+      if (Math.hypot(x - f[2], y - f[3]) <= 20 / this.zoom) {
+        this.beginTransform(e, 'scale', x, y, f[0], f[1], Math.max(1, Math.hypot(x - f[0], y - f[1])))
         return
       }
-      if (x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]) {
+      // Anywhere inside the loop (or on a selected stroke) moves it.
+      if (insidePolygon(x, y, sel.loop) || (x >= sel.box[0] && x <= sel.box[2] && y >= sel.box[1] && y <= sel.box[3])) {
         this.beginTransform(e, 'move', x, y, 0, 0, 1)
         return
       }
@@ -873,13 +889,31 @@ export class InkCanvas {
       return
     }
     const picked = (a.pv.strokes ?? []).filter((s) => shareInside(s, a.pts) >= 0.6)
-    if (picked.length) this.select(a.pv, picked)
+    if (picked.length) this.select(a.pv, picked, a.pts)
   }
 
-  private select(pv: PageView, strokes: RStroke[]): void {
+  /**
+   * Selects strokes. `loop` is the outline to show around them; without one
+   * (a pasted selection), a rounded frame is used.
+   */
+  private select(pv: PageView, strokes: RStroke[], loop?: number[]): void {
     let box = strokes[0].bbox
     for (const s of strokes) box = unionBox(box, s.bbox)
-    this.selection = { pv, ids: new Set(strokes.map((s) => s.id)), box }
+    if (!loop) {
+      const m = 5
+      const r = 6
+      const [x0, y0, x1, y1] = [box[0] - m, box[1] - m, box[2] + m, box[3] + m]
+      loop = []
+      for (const [cx, cy, from] of [[x1 - r, y0 + r, -90], [x1 - r, y1 - r, 0], [x0 + r, y1 - r, 90], [x0 + r, y0 + r, 180]]) {
+        for (let i = 0; i <= 6; i++) {
+          const angle = ((from + i * 15) * Math.PI) / 180
+          loop.push(cx + r * Math.cos(angle), cy + r * Math.sin(angle))
+        }
+      }
+    }
+    let frame = box
+    for (let i = 0; i < loop.length; i += 2) frame = unionBox(frame, [loop[i], loop[i + 1], loop[i], loop[i + 1]])
+    this.selection = { pv, ids: new Set(strokes.map((s) => s.id)), box, loop, frame }
     this.schedule()
   }
 
@@ -889,7 +923,7 @@ export class InkCanvas {
   }
 
   /** Replaces each selected stroke by its modified copy, as one undoable change. */
-  private replaceSelected(change: (s: RStroke) => Stroke): void {
+  private replaceSelected(change: (s: RStroke) => Stroke, loop?: number[]): void {
     const sel = this.selection
     if (!sel?.pv.strokes) return
     const olds: Stroke[] = []
@@ -904,7 +938,7 @@ export class InkCanvas {
       return next
     })
     if (!news.length) return
-    this.select(sel.pv, news)
+    this.select(sel.pv, news, loop ?? sel.loop)
     this.markDirty(sel.pv, dirty)
     this.host.onChange({ added: news.map(plain), removed: olds })
   }
@@ -923,7 +957,7 @@ export class InkCanvas {
         pts[i + 1] = t.ay + (pts[i + 1] - t.ay) * t.k + t.dy
       }
       return { ...plain(s), width: s.width * t.k, pts }
-    })
+    }, sel.loop.map((v, i) => (i % 2 === 0 ? t.ax + (v - t.ax) * t.k + t.dx : t.ay + (v - t.ay) * t.k + t.dy)))
   }
 
   clearSelection(): void {
@@ -967,7 +1001,7 @@ export class InkCanvas {
   }
 
   /** Adds copies of `strokes` to a page, shifted by (dx, dy), and selects them. */
-  private addCopies(pv: PageView, strokes: Stroke[], dx: number, dy: number): void {
+  private addCopies(pv: PageView, strokes: Stroke[], dx: number, dy: number, loop?: number[]): void {
     if (!pv.strokes || !strokes.length) return
     const copies = strokes.map((s) => {
       const pts = Float32Array.from(s.pts)
@@ -979,14 +1013,14 @@ export class InkCanvas {
       return toR({ ...s, id: uid(), pageId: pv.page.id, seq: this.lastSeq, pts })
     })
     pv.strokes.push(...copies)
-    this.select(pv, copies)
+    this.select(pv, copies, loop)
     this.markDirty(pv, this.selection!.box)
     this.host.onChange({ added: copies.map(plain), removed: [] })
   }
 
   duplicateSelection(): void {
     const sel = this.selection
-    if (sel) this.addCopies(sel.pv, this.selected().map(plain), 14, 14)
+    if (sel) this.addCopies(sel.pv, this.selected().map(plain), 14, 14, sel.loop.map((v) => v + 14))
   }
 
   /** Pastes the copied strokes, centred on the last tap made with the selection tool. */
