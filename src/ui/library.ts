@@ -6,6 +6,7 @@ import { createFolder, createNotebook, deleteNode, importNotebook, moveNode, pat
 import { BACKGROUNDS, ROOT, isDirtyNotebook, pageSize, uid, type Background, type LibNode, type Orientation, type Page } from '../model'
 import { extractData } from '../pdf/client'
 import { dataToContent } from '../pdf/codec'
+import { firstPagePicture } from './firstpage'
 import { preparePicture } from './pictures'
 import type { SyncEngine } from '../sync/engine'
 import { button, confirmDialog, dialogButtons, h, iconButton, icons, openDialog, openMenu, promptDialog, toast } from './dom'
@@ -22,6 +23,11 @@ export interface LibraryDeps {
   /** false: sync is not active (local deletion only). */
   synced(): boolean
 }
+
+/** Pictures of first pages already shown, so a redraw of the library does not blink. */
+const shown = new Map<string, { rev: number; page: string | undefined; url: string }>()
+/** Changes at each drawing of the library: pictures still being prepared for an older one are dropped. */
+let drawing = 0
 
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 
@@ -230,6 +236,40 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
       },
     ])
 
+  const turn = ++drawing
+  const preparing = new Map<string, Promise<string | null>>()
+  /** The notebook's first page; until its picture is ready, a sheet with the notebook's ruling. */
+  const notebookCover = (node: LibNode): HTMLElement => {
+    const cover = h('div', { class: `cover paper bg-${node.bg ?? 'blank'} ${node.orient === 'landscape' ? 'landscape' : ''}` })
+    const show = (url: string) => {
+      cover.classList.add('pictured')
+      cover.replaceChildren(h('img', { src: url, alt: '', draggable: false }))
+    }
+    const known = shown.get(node.id)
+    if (known) show(known.url)
+    if (node.foreign || (node.needsDownload && !node.pageIds?.length)) return cover
+    if (known?.rev === (node.rev ?? 0) && known.page === node.pageIds?.[0]) return cover
+    // A notebook can appear on several cards (favourites, recent…): its picture is prepared once.
+    let ready = preparing.get(node.id)
+    if (!ready) {
+      ready = firstPagePicture(node)
+        .then((blob) => {
+          if (!blob) return null
+          if (known) URL.revokeObjectURL(known.url)
+          const url = URL.createObjectURL(blob)
+          shown.set(node.id, { rev: node.rev ?? 0, page: node.pageIds?.[0], url })
+          return url
+        })
+        .catch((e) => {
+          console.error('First page picture', e)
+          return null
+        })
+      preparing.set(node.id, ready)
+    }
+    void ready.then((url) => url && turn === drawing && show(url))
+    return cover
+  }
+
   const card = (node: LibNode, where = false): HTMLElement => {
     const isFolder = node.kind === 'folder'
     let sub: string
@@ -252,7 +292,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     return h(
       'div',
       { class: `card ${isFolder ? 'folder' : 'notebook'} ${node.favorite ? 'favorite' : ''}`, role: 'button', tabIndex: 0, onClick: () => deps.open(node), onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && deps.open(node) },
-      isFolder ? h('div', { class: 'cover folder-cover', html: icons.folder }) : h('div', { class: `cover paper bg-${node.bg ?? 'blank'} ${node.orient === 'landscape' ? 'landscape' : ''}` }),
+      isFolder ? h('div', { class: 'cover folder-cover', html: icons.folder }) : notebookCover(node),
       node.favorite ? h('span', { class: 'fav-mark', title: 'Favourite', html: icons.star }) : null,
       h('div', { class: 'card-text' }, h('div', { class: 'card-name' }, node.name), h('div', { class: 'card-sub' }, sub, pending ? h('span', { class: 'pending-dot', title: 'Not yet sent to OneDrive' }) : null)),
       more,

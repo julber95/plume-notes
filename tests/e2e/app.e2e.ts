@@ -1123,6 +1123,24 @@ describe('Plume in the browser', () => {
     await shot(page, '36-page-formats')
 
     await page.getByRole('button', { name: 'Back to library' }).click()
+    // In the library, the card of the notebook shows its first page: here, the cover in its colour.
+    const card = page.locator('.listing .grid').last().locator('.card.notebook', { hasText: 'Quantum mechanics' })
+    await card.locator('.cover img').waitFor({ timeout: 15_000 })
+    const tealPixels = () =>
+      card.locator('.cover img').evaluate(async (img: HTMLImageElement) => {
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = img.naturalWidth
+        c.height = img.naturalHeight
+        const g = c.getContext('2d')!
+        g.drawImage(img, 0, 0)
+        const d = g.getImageData(0, 0, c.width, c.height).data
+        let n = 0
+        for (let k = 0; k < d.length; k += 4) if (d[k] < 90 && d[k + 1] > 90 && d[k + 1] < 170 && d[k + 2] > 110) n++
+        return n
+      })
+    await expect.poll(tealPixels, { timeout: 10_000 }).toBeGreaterThan(60)
+    await shot(page, '37-library-first-pages')
     await expect.poll(async () => (await extractPlumeData(drive.find('Plume/Quantum mechanics.pdf')?.content ?? new Uint8Array()))?.pages.length, { timeout: 20_000 }).toBe(4)
     const exported = drive.find('Plume/Quantum mechanics.pdf')!.content!
     writeFileSync(`${OUT}cover.pdf`, exported)

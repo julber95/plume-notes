@@ -363,6 +363,18 @@ button:focus-visible,
   border-radius: 2px;
 }
 
+.card.notebook .cover.pictured {
+  background: #fff;
+  overflow: hidden;
+}
+
+.card.notebook .cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .card.notebook .cover.landscape {
   width: 124px;
   height: 88px;
