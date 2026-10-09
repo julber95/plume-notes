@@ -9,6 +9,7 @@ import { dataToContent } from '../pdf/codec'
 import { firstPagePicture } from './firstpage'
 import { preparePicture } from './pictures'
 import type { SyncEngine } from '../sync/engine'
+import { openThemeMenu } from './settings'
 import { button, confirmDialog, dialogButtons, h, iconButton, icons, logo, openDialog, openMenu, promptDialog, toast } from './dom'
 
 export interface LibraryDeps {
@@ -310,31 +311,53 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     return well
   }
 
-  const card = (node: LibNode, where = false): HTMLElement => {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  /** When the item last changed here; for a folder, the latest change of anything in it. */
+  const modified = (node: LibNode): number =>
+    node.kind === 'folder' ? Math.max(node.updatedAt, ...subtree(nodes, node.id).map((id) => byId.get(id)?.updatedAt ?? 0)) : node.updatedAt
+  const when = (t: number): string => {
+    const d = new Date(t)
+    const now = new Date()
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(d.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }) })
+  }
+  const plural = (n: number, word: string) => `${n} ${word}${n > 1 ? 's' : ''}`
+
+  /** A line of the listing; `tile`: a small sheet for the rows of shortcuts instead. */
+  const card = (node: LibNode, where = false, tile = false): HTMLElement => {
     const isFolder = node.kind === 'folder'
     let sub: string
     if (isFolder) {
-      const n = nodes.filter((c) => c.parentId === node.id).length
-      sub = n === 0 ? 'Empty' : `${n} item${n > 1 ? 's' : ''}`
+      const inside = nodes.filter((c) => c.parentId === node.id)
+      const books = inside.filter((c) => c.kind === 'notebook').length
+      const dirs = inside.length - books
+      sub = [books ? plural(books, 'notebook') : '', dirs ? plural(dirs, 'folder') : ''].filter(Boolean).join(' · ') || 'Empty'
     } else if (node.foreign) sub = 'External PDF'
     else if (node.needsDownload && !node.pageIds?.length) sub = 'To download'
-    else {
-      const n = node.pageIds?.length ?? 0
-      sub = `${n} page${n > 1 ? 's' : ''}`
-    }
+    else sub = plural(node.pageIds?.length ?? 0, 'page')
     const pending = !isFolder && deps.synced() && isDirtyNotebook(node)
     const more = iconButton(icons.more, `Actions for ${node.name}`, (e) => {
       e.stopPropagation()
       itemMenu(node, more)
     }, 'small')
     // In search results and shortcut lists, say where the item lives.
-    if (where) sub = `${['Plume', ...pathTo(nodes, node.parentId).map((f) => f.name)].join(' › ')} · ${sub}`
+    const place = ['Plume', ...pathTo(nodes, node.parentId).map((f) => f.name)].join(' › ')
+    if (tile) sub = place
+    else if (where) sub = `${place} · ${sub}`
+    const changed = modified(node)
     return h(
       'div',
-      { class: `card ${isFolder ? 'folder' : 'notebook'} ${node.favorite ? 'favorite' : ''}`, role: 'button', tabIndex: 0, onClick: () => deps.open(node), onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && deps.open(node) },
+      {
+        class: `card ${isFolder ? 'folder' : 'notebook'} ${node.favorite ? 'favorite' : ''} ${tile ? 'tile' : ''}`,
+        role: 'button',
+        tabIndex: 0,
+        onClick: () => deps.open(node),
+        onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && deps.open(node),
+      },
       isFolder ? h('span', { class: 'folder-icon', html: icons.folder }) : notebookCover(node),
-      node.favorite ? h('span', { class: 'fav-mark', title: 'Favourite', html: icons.star }) : null,
       h('div', { class: 'card-text' }, h('div', { class: 'card-name' }, node.name), h('div', { class: 'card-sub' }, sub, pending ? h('span', { class: 'pending-dot', title: 'Not yet sent to OneDrive' }) : null)),
+      node.favorite ? h('span', { class: 'fav-mark', title: 'Favourite', html: icons.star }) : null,
+      tile ? null : h('span', { class: 'card-date', title: `Modified ${new Date(changed).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}` }, when(changed)),
       more,
     )
   }
@@ -368,14 +391,16 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
 
   const empty = folders.length + notebooks.length === 0
   const byName = (a: LibNode, b: LibNode) => collator.compare(a.name, b.name)
-  /** Folders as compact rows, then notebooks as sheets. */
+  /** One line per item: the folders, then the notebooks. */
   const grids = (items: LibNode[], where = false) => {
-    const rows = items.filter((n) => n.kind === 'folder')
-    const sheets = items.filter((n) => n.kind === 'notebook')
-    return [...(rows.length ? [h('div', { class: 'grid folders' }, ...rows.map((n) => card(n, where)))] : []), ...(sheets.length ? [h('div', { class: 'grid' }, ...sheets.map((n) => card(n, where)))] : [])]
+    const dirs = items.filter((n) => n.kind === 'folder')
+    const books = items.filter((n) => n.kind === 'notebook')
+    return [...(dirs.length ? [h('div', { class: 'grid folders' }, ...dirs.map((n) => card(n, where)))] : []), ...(books.length ? [h('div', { class: 'grid' }, ...books.map((n) => card(n, where)))] : [])]
   }
-  const section = (title: string, items: LibNode[], where = false) =>
-    items.length ? [h('h2', { class: 'lib-section' }, title, h('span', { class: 'count' }, String(items.length))), ...grids(items, where)] : []
+  const heading = (title: string, count: number) => h('h2', { class: 'lib-section' }, title, h('span', { class: 'count' }, String(count)))
+  const section = (title: string, items: LibNode[]) => (items.length ? [heading(title, items.length), ...grids(items)] : [])
+  /** Shortcuts: small sheets on a single row, which scrolls sideways. */
+  const strip = (title: string, items: LibNode[]) => (items.length ? [heading(title, items.length), h('div', { class: 'grid strip' }, ...items.map((n) => card(n, true, true)))] : [])
 
   /** What is listed under the buttons: the folder, or what matches the search. */
   const listing = h('div', { class: 'listing' })
@@ -390,8 +415,8 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     const books = nodes.filter((n) => n.kind === 'notebook')
     // Shortcuts, on the first screen of the library only.
     const favourites = folderId === ROOT ? books.filter((n) => n.favorite).sort(byName) : []
-    const recent = folderId === ROOT ? books.filter((n) => n.openedAt).sort((a, b) => b.openedAt! - a.openedAt!).slice(0, 4) : []
-    const shortcuts = [...section('Favourites', favourites, true), ...section('Recent', recent, true)]
+    const recent = folderId === ROOT ? books.filter((n) => n.openedAt).sort((a, b) => b.openedAt! - a.openedAt!).slice(0, 10) : []
+    const shortcuts = [...strip('Favourites', favourites), ...strip('Recent', recent)]
     listing.replaceChildren(
       ...shortcuts,
       ...(empty
@@ -472,6 +497,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
   }
   drawTree()
 
+  const themeButton = iconButton(icons.sun, 'Appearance', () => openThemeMenu(themeButton))
   const library = h('div', { class: `library ${treeShown() ? '' : 'tree-hidden'}` })
   /** Shows or hides the tree; on narrow screens only (`drawerOnly`), or wherever it is. */
   const setTree = (shown: boolean, drawerOnly = false): void => {
@@ -494,6 +520,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
         crumbs,
         h('div', { class: 'spacer' }),
         deps.syncChip,
+        themeButton,
         iconButton(icons.settings, 'Settings', deps.openSettings),
       ),
       h(

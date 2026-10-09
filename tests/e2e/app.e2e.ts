@@ -945,13 +945,16 @@ describe('Plume in the browser', () => {
 
     const bodyColour = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
     expect(await bodyColour()).toBe('rgb(255, 255, 255)')
-    await page.getByRole('button', { name: 'Settings' }).click()
-    await page.getByRole('button', { name: 'Dark', exact: true }).click()
+    // The appearance has its own menu, apart from the settings; a choice applies at once.
+    await page.getByRole('button', { name: 'Appearance' }).click()
+    await page.getByRole('menuitemradio', { name: 'Dark', exact: true }).click()
     expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark')
     expect(await bodyColour()).toBe('rgb(19, 18, 23)')
     await shot(page, '27-dark-settings')
     await page.getByLabel('Dark pages too, with the dark appearance').check()
     expect(await page.evaluate(() => document.documentElement.classList.contains('dark-pages'))).toBe(true)
+    await page.getByRole('button', { name: 'Appearance' }).click()
+    await page.getByRole('button', { name: 'Settings' }).click()
     await page.getByRole('button', { name: 'Save' }).click()
     await shot(page, '28-dark-library')
 
