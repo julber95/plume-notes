@@ -151,7 +151,7 @@ describe('Plume in the browser', () => {
     await page.locator('.card.folder', { hasText: 'Maths' }).click()
     await page.locator('.crumbs .current', { hasText: 'Maths' }).waitFor()
     await page.getByRole('button', { name: 'Notebook', exact: true }).click()
-    await page.getByLabel('Name').fill('Calculus : chapter 1')
+    await page.getByLabel('Name', { exact: true }).fill('Calculus : chapter 1')
     await page.getByRole('radio', { name: 'Seyès' }).click()
     await shot(page, '02-new-notebook')
     await page.getByRole('button', { name: 'Create' }).click()
@@ -620,7 +620,7 @@ describe('Plume in the browser', () => {
     await page.getByRole('button', { name: 'Sign in to OneDrive' }).click()
     await page.waitForFunction(() => document.querySelector('.sync-chip')?.getAttribute('data-state') === 'ok')
     await page.getByRole('button', { name: 'Notebook', exact: true }).click()
-    await page.getByLabel('Name').fill('Pictures')
+    await page.getByLabel('Name', { exact: true }).fill('Pictures')
     await page.getByRole('button', { name: 'Create' }).click()
     await page.locator('canvas.ink').waitFor()
     await settle(page)
@@ -857,6 +857,53 @@ describe('Plume in the browser', () => {
     await shot(pc.page, '24-pdf-other-device')
     expect(pc.errors).toEqual([])
     await pc.ctx.close()
+  })
+
+  it('finds notes by name, and keeps favourites and recent notebooks at hand', async () => {
+    const tab = await device()
+    const { page } = tab
+    const make = async (name: string) => {
+      await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+      await page.getByLabel('Name', { exact: true }).fill(name)
+      await page.getByRole('button', { name: 'Create' }).click()
+      await page.locator('canvas.ink').waitFor()
+      await page.getByRole('button', { name: 'Back to library' }).click()
+      await page.locator('.lib-actions').waitFor()
+    }
+    await page.getByRole('button', { name: 'Folder', exact: true }).click()
+    await page.getByLabel('Folder name').fill('Physics')
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('.card.folder', { hasText: 'Physics' }).click()
+    await page.locator('.crumbs .current', { hasText: 'Physics' }).waitFor()
+    await make('Optics lecture 3')
+    await page.locator('.crumbs button', { hasText: 'Plume' }).click()
+    await page.locator('.crumbs .current', { hasText: 'Plume' }).waitFor()
+    await make('Algebra homework')
+    await make('Optics summary')
+
+    // Recent: the notebooks just opened, most recent first, with where they are.
+    const section = (title: string) => page.locator('.lib-section', { hasText: title }).locator('+ .grid .card-name')
+    await expect.poll(() => section('Recent').allTextContents()).toEqual(['Optics summary', 'Algebra homework', 'Optics lecture 3'])
+    expect(await page.locator('.lib-section', { hasText: 'Recent' }).locator('+ .grid .card-sub').last().textContent()).toContain('Plume › Physics')
+
+    // Search looks everywhere, folders included.
+    await page.getByLabel('Search by name').fill('optics')
+    await expect.poll(() => page.locator('.listing .card-name').allTextContents()).toEqual(['Optics lecture 3', 'Optics summary'])
+    await page.getByLabel('Search by name').fill('phys')
+    await expect.poll(() => page.locator('.listing .card-name').allTextContents()).toEqual(['Physics'])
+    await page.getByLabel('Search by name').fill('zzz')
+    await page.getByText('Nothing is named "zzz".').waitFor()
+    await page.getByLabel('Search by name').fill('')
+
+    // Favourites.
+    await page.locator('.listing .grid').last().locator('.card', { hasText: 'Algebra homework' }).getByRole('button', { name: /Actions for/ }).click()
+    await page.getByRole('menuitem', { name: 'Add to favourites' }).click()
+    await expect.poll(() => section('Favourites').allTextContents()).toEqual(['Algebra homework'])
+    await shot(page, '25-library-shortcuts')
+    await page.reload()
+    await expect.poll(() => section('Favourites').allTextContents()).toEqual(['Algebra homework'])
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
   })
 })
 

@@ -1,6 +1,6 @@
 import './styles.css'
 import { registerSW } from 'virtual:pwa-register'
-import { getNode } from './db'
+import { getNode, updateNode } from './db'
 import { ROOT, type LibNode } from './model'
 import { buildPdf, extractData } from './pdf/client'
 import { createAuth } from './sync/auth'
@@ -67,6 +67,8 @@ async function show(): Promise<void> {
       location.replace(folderHash(node && !node.deleted ? node.parentId : ROOT))
       return
     }
+    // Remembered for the "Recent" list of the library.
+    void updateNode(r.id, (n) => void (n.openedAt = Date.now()))
     editor = await openEditor(app, r.id, {
       syncChip: createSyncChip(engine, { login }, true),
       onSaved: scheduleRefresh,

@@ -215,6 +215,66 @@ button:focus-visible,
   margin: 8px 0 18px;
 }
 
+.lib-actions {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 180px;
+  flex: 0 1 280px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.search-box .search {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.search-box:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.lib-section {
+  margin: 20px 0 10px;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.lib-section:first-child {
+  margin-top: 0;
+}
+
+.fav-mark {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: #d99a00;
+}
+
+.fav-mark svg {
+  width: 18px;
+  height: 18px;
+  fill: #f5c542;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

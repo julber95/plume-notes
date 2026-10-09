@@ -84,6 +84,12 @@ export interface LibNode {
   needsDownload?: boolean
   /** PDF present in the folder but not created by Plume. */
   foreign?: boolean
+
+  // Kept on this device only
+  /** Pinned at the top of the library. */
+  favorite?: boolean
+  /** When the notebook was last opened here. */
+  openedAt?: number
 }
 
 export function pageSize(page: Pick<Page, 'orient' | 'w' | 'h'>): { w: number; h: number } {

@@ -1,6 +1,6 @@
 // Library: folders and notebooks, as they appear in OneDrive.
 
-import { allNodes, kvGet, kvSet } from '../db'
+import { allNodes, kvGet, kvSet, updateNode } from '../db'
 import { createFolder, createNotebook, deleteNode, importNotebook, moveNode, pathTo, renameNode, subtree } from '../library'
 import { BACKGROUNDS, ROOT, isDirtyNotebook, pageSize, uid, type Background, type LibNode, type Orientation, type Page } from '../model'
 import { extractData } from '../pdf/client'
@@ -23,6 +23,9 @@ export interface LibraryDeps {
 }
 
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
+
+/** The search in progress, kept when the library redraws itself (after a sync, for instance). */
+const searching = { folder: '', query: '', focused: false }
 
 interface NotebookOptions {
   bg: Background
@@ -134,6 +137,18 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
 
   const itemMenu = (node: LibNode, anchor: HTMLElement) =>
     openMenu(anchor, [
+      ...(node.kind === 'notebook'
+        ? [
+            {
+              label: node.favorite ? 'Remove from favourites' : 'Add to favourites',
+              icon: icons.star,
+              action: async () => {
+                await updateNode(node.id, (n) => void (n.favorite = !n.favorite))
+                void renderLibrary(root, folderId, deps)
+              },
+            },
+          ]
+        : []),
       {
         label: 'Rename',
         icon: icons.pen,
@@ -163,7 +178,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
       },
     ])
 
-  const card = (node: LibNode): HTMLElement => {
+  const card = (node: LibNode, where = false): HTMLElement => {
     const isFolder = node.kind === 'folder'
     let sub: string
     if (isFolder) {
@@ -180,10 +195,13 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
       e.stopPropagation()
       itemMenu(node, more)
     }, 'small')
+    // In search results and shortcut lists, say where the item lives.
+    if (where) sub = `${['Plume', ...pathTo(nodes, node.parentId).map((f) => f.name)].join(' › ')} · ${sub}`
     return h(
       'div',
-      { class: `card ${isFolder ? 'folder' : 'notebook'}`, role: 'button', tabIndex: 0, onClick: () => deps.open(node), onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && deps.open(node) },
+      { class: `card ${isFolder ? 'folder' : 'notebook'} ${node.favorite ? 'favorite' : ''}`, role: 'button', tabIndex: 0, onClick: () => deps.open(node), onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && deps.open(node) },
       isFolder ? h('div', { class: 'cover folder-cover', html: icons.folder }) : h('div', { class: `cover paper bg-${node.bg ?? 'blank'} ${node.orient === 'landscape' ? 'landscape' : ''}` }),
+      node.favorite ? h('span', { class: 'fav-mark', title: 'Favourite', html: icons.star }) : null,
       h('div', { class: 'card-text' }, h('div', { class: 'card-name' }, node.name), h('div', { class: 'card-sub' }, sub, pending ? h('span', { class: 'pending-dot', title: 'Not yet sent to OneDrive' }) : null)),
       more,
     )
@@ -217,6 +235,46 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
   )
 
   const empty = folders.length + notebooks.length === 0
+  const byName = (a: LibNode, b: LibNode) => collator.compare(a.name, b.name)
+  const section = (title: string, items: LibNode[], where = false) =>
+    items.length ? [h('h2', { class: 'lib-section' }, title), h('div', { class: 'grid' }, ...items.map((n) => card(n, where)))] : []
+
+  /** What is listed under the buttons: the folder, or what matches the search. */
+  const listing = h('div', { class: 'listing' })
+  const showListing = (query: string): void => {
+    const q = query.trim().toLowerCase()
+    if (q) {
+      // Search the names of everything in the library, wherever it is.
+      const found = nodes.filter((n) => n.name.toLowerCase().includes(q)).sort((a, b) => (a.kind === b.kind ? byName(a, b) : a.kind === 'folder' ? -1 : 1))
+      listing.replaceChildren(...(found.length ? section(`${found.length} result${found.length > 1 ? 's' : ''}`, found, true) : [h('p', { class: 'empty' }, `Nothing is named "${query.trim()}".`)]))
+      return
+    }
+    const books = nodes.filter((n) => n.kind === 'notebook')
+    // Shortcuts, on the first screen of the library only.
+    const favourites = folderId === ROOT ? books.filter((n) => n.favorite).sort(byName) : []
+    const recent = folderId === ROOT ? books.filter((n) => n.openedAt).sort((a, b) => b.openedAt! - a.openedAt!).slice(0, 4) : []
+    const shortcuts = [...section('Favourites', favourites, true), ...section('Recent', recent, true)]
+    listing.replaceChildren(
+      ...shortcuts,
+      ...(empty
+        ? [h('p', { class: 'empty' }, folderId === ROOT ? 'No notes yet. Create a notebook to start writing.' : 'This folder is empty.')]
+        : [...(shortcuts.length ? [h('h2', { class: 'lib-section' }, 'All notes')] : []), h('div', { class: 'grid' }, ...folders.map((n) => card(n)), ...notebooks.map((n) => card(n)))]),
+    )
+  }
+  if (searching.folder !== folderId) Object.assign(searching, { folder: folderId, query: '', focused: false })
+  const search = h('input', {
+    type: 'search',
+    class: 'search',
+    placeholder: 'Search by name',
+    'aria-label': 'Search by name',
+    autocomplete: 'off',
+    value: searching.query,
+    onInput: () => showListing((searching.query = search.value)),
+    onFocus: () => (searching.focused = true),
+    onBlur: () => (searching.focused = false),
+  })
+  const wasSearching = searching.focused
+  showListing(searching.query)
 
   root.replaceChildren(
     h(
@@ -259,15 +317,16 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
         ),
         h('button', { class: 'btn', type: 'button', title: 'Import a PDF or a picture', onClick: () => importer.click() }, h('span', { class: 'menu-icon', html: icons.importFile }), 'Import'),
         importer,
+        h('div', { class: 'spacer' }),
+        h('label', { class: 'search-box' }, h('span', { class: 'menu-icon', html: icons.search }), search),
       ),
       ...notices.map((n) =>
         h('div', { class: 'notice', role: 'alert' }, h('span', {}, n.text), iconButton(icons.close, 'Dismiss notice', () => void deps.engine.dismissNotice(n.id), 'small')),
       ),
-      empty
-        ? h('p', { class: 'empty' }, folderId === ROOT ? 'No notes yet. Create a notebook to start writing.' : 'This folder is empty.')
-        : h('div', { class: 'grid' }, ...folders.map(card), ...notebooks.map(card)),
+      listing,
     ),
   )
+  if (wasSearching) search.focus()
 }
 
 export function notOpenable(node: LibNode): boolean {
