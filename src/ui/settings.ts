@@ -2,6 +2,7 @@ import { kvGet, kvSet } from '../db'
 import { ONEDRIVE_FOLDER } from '../config'
 import type { Auth } from '../sync/auth'
 import { button, dialogButtons, h, openDialog } from './dom'
+import { darkPagesChosen, setTheme, themeChoice, type ThemeChoice } from './theme'
 
 export const DEFAULT_EXPORT_MINUTES = 5
 
@@ -28,6 +29,17 @@ export async function openSettings(deps: { auth: Auth; owner(): Promise<string>;
 
   await openDialog<true>('Settings', (d) => {
     const input = h('input', { type: 'number', min: 1, max: 60, step: 1, value: minutes, inputMode: 'numeric' })
+    let theme = themeChoice()
+    const themes = h('div', { class: 'segmented' })
+    const pages = h('input', { type: 'checkbox', checked: darkPagesChosen() })
+    const drawThemes = () =>
+      themes.replaceChildren(
+        ...([['auto', 'Automatic'], ['light', 'Light'], ['dark', 'Dark']] as [ThemeChoice, string][]).map(([id, label]) =>
+          h('button', { type: 'button', class: id === theme ? 'selected' : '', onClick: () => ((theme = id), drawThemes(), setTheme(theme, pages.checked)) }, label),
+        ),
+      )
+    drawThemes()
+    pages.addEventListener('change', () => setTheme(theme, pages.checked))
     const save = () => {
       const v = Math.min(60, Math.max(1, Math.round(Number(input.value) || DEFAULT_EXPORT_MINUTES)))
       void kvSet('exportMinutes', v).then(deps.changed)
@@ -38,6 +50,12 @@ export async function openSettings(deps: { auth: Auth; owner(): Promise<string>;
         h('h3', {}, 'Automatic export'),
         h('label', { class: 'field inline' }, h('span', {}, 'Send the PDF to OneDrive every'), input, h('span', {}, 'minutes')),
         h('p', { class: 'muted' }, 'While you are writing. The PDF is also sent when you close a notebook or leave the application.'),
+      ),
+      h('section', { class: 'settings-section' },
+        h('h3', {}, 'Appearance'),
+        themes,
+        h('label', { class: 'check' }, pages, h('span', {}, 'Dark pages too, with the dark appearance')),
+        h('p', { class: 'muted' }, 'Automatic follows the setting of the device. Dark pages only change what you see while writing: the PDF stays black on white.'),
       ),
       h('section', { class: 'settings-section' },
         h('h3', {}, 'OneDrive'),

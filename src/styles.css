@@ -11,8 +11,43 @@
   --warn-line: #ecd48a;
   --radius: 10px;
   --shadow: 0 6px 24px rgba(20, 30, 50, 0.16);
+  --icon: var(--icon);
+  --hover: var(--hover);
+  --panel: #f1f2f5;
+  --stage: #e7e9ed;
+  --float: rgba(255, 255, 255, 0.92);
+  --on-accent: #ffffff;
   color-scheme: light;
 }
+
+:root[data-theme='dark'] {
+  --bg: #15181d;
+  --surface: #1f232a;
+  --line: #343b47;
+  --text: #e6e9ee;
+  --muted: #9aa4b3;
+  --accent: #8fb2f7;
+  --accent-soft: #273450;
+  --danger: #f0766d;
+  --warn-bg: #3a3118;
+  --warn-line: #6b5a22;
+  --shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+  --icon: #c3cad6;
+  --hover: rgba(255, 255, 255, 0.08);
+  --panel: #1a1d23;
+  --stage: #22262d;
+  --float: rgba(42, 47, 56, 0.95);
+  --on-accent: #101623;
+  color-scheme: dark;
+}
+
+/* Dark pages: the writing surface and its previews are shown inverted (white
+   ink on a dark page). Colours keep their hue. The PDF is not affected. */
+.dark-pages canvas.ink,
+.dark-pages .thumb-page canvas {
+  filter: invert(1) hue-rotate(180deg);
+}
+
 
 * {
   box-sizing: border-box;
@@ -97,7 +132,7 @@ button:focus-visible,
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .btn.primary:active {
@@ -107,7 +142,7 @@ button:focus-visible,
 .btn.danger {
   background: var(--danger);
   border-color: var(--danger);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .btn.wide {
@@ -124,7 +159,7 @@ button:focus-visible,
   border: 0;
   border-radius: 9px;
   background: transparent;
-  color: #3a4352;
+  color: var(--icon);
   cursor: pointer;
 }
 
@@ -134,7 +169,7 @@ button:focus-visible,
 }
 
 .icon-btn:hover {
-  background: rgba(30, 45, 80, 0.07);
+  background: var(--hover);
 }
 
 .icon-btn:disabled {
@@ -294,7 +329,7 @@ button:focus-visible,
 }
 
 .card:hover {
-  border-color: #c5ccd8;
+  border-color: var(--muted);
 }
 
 .card .icon-btn {
@@ -447,6 +482,10 @@ button:focus-visible,
   color: #1c7a43;
 }
 
+:root[data-theme='dark'] .sync-chip[data-state='ok'] {
+  color: #63c98c;
+}
+
 .sync-chip[data-state='pending'],
 .sync-chip[data-state='syncing'] {
   color: var(--accent);
@@ -459,7 +498,7 @@ button:focus-visible,
 .sync-chip[data-state='error'],
 .sync-chip[data-state='signedOut'] {
   color: var(--danger);
-  border-color: #e7b9b5;
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--surface));
 }
 
 .sync-chip.compact {
@@ -639,6 +678,7 @@ button:focus-visible,
 /* ---------- Dialogs ---------- */
 
 .dialog {
+  background: var(--surface);
   width: min(460px, calc(100vw - 24px));
   max-height: calc(100vh - 24px);
   padding: 20px;
@@ -899,11 +939,11 @@ button:focus-visible,
 .quick .bar {
   width: 20px;
   border-radius: 4px;
-  background: #3a4352;
+  background: var(--icon);
 }
 
 .quick .ring {
-  border: 1.5px solid #3a4352;
+  border: 1.5px solid var(--icon);
   border-radius: 50%;
 }
 
@@ -917,7 +957,7 @@ button:focus-visible,
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background: #e7e9ed;
+  background: var(--stage);
 }
 
 .thumbs {
@@ -932,7 +972,7 @@ button:focus-visible,
   align-items: center;
   gap: 10px;
   overflow-y: auto;
-  background: #f1f2f5;
+  background: var(--panel);
   border-right: 1px solid var(--line);
   z-index: 3;
 }
@@ -1052,7 +1092,7 @@ button:focus-visible,
 }
 
 .bookmark-go:hover {
-  background: rgba(30, 45, 80, 0.07);
+  background: var(--hover);
 }
 
 .bookmark-go .menu-icon svg {
@@ -1105,7 +1145,7 @@ button:focus-visible,
 
 .thumb.current .thumb-number {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 canvas.ink {
@@ -1124,7 +1164,7 @@ canvas.ink {
   gap: 4px;
   padding: 3px;
   border-radius: 22px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--float);
   box-shadow: 0 1px 6px rgba(20, 30, 50, 0.2);
 }
 
@@ -1134,14 +1174,14 @@ canvas.ink {
   border: 0;
   border-radius: 18px;
   background: none;
-  color: #3a4352;
+  color: var(--icon);
   font-size: 13.5px;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
 
 .page-pill:hover {
-  background: rgba(30, 45, 80, 0.07);
+  background: var(--hover);
 }
 
 .sel-bar {

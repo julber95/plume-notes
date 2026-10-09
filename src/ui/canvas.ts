@@ -9,6 +9,7 @@ import { centerline, eraseFromStroke, isScribble, penOutline, pencilOutline, hig
 import { GRAIN_TILE, grainSpecks, pencilAlpha, pencilLevel } from '../grain'
 import { pageSize, uid, type Page, type Stroke } from '../model'
 import { recognizeShape } from '../shapes'
+import { backdrop } from './theme'
 
 export type ToolKind = 'pen' | 'pencil' | 'highlighter' | 'eraser' | 'line' | 'lasso'
 
@@ -84,7 +85,6 @@ type Action =
 
 const GAP = 14
 const ADD_ZONE = 64
-const PAPER_BG = '#e7e9ed'
 const MAX_ZOOM = 8
 const SELECT_COLOR = '#2b4c8c'
 /** Maximum size of a page's cached image (pixels). */
@@ -266,6 +266,12 @@ export class InkCanvas {
   private hidden: Set<string> | null = null
   private pasteTarget: { pv: PageView; x: number; y: number } | null = null
   private reported = ''
+  /** Colour around the pages (follows the light or dark appearance). */
+  private backdrop = backdrop()
+  private onTheme = (): void => {
+    this.backdrop = backdrop()
+    this.invalidate()
+  }
   /** While a small preview is drawn: extra thickness (page units) so that fine ink stays visible. */
   private boost = 0
   /** When the stroke in progress was last drawn, and how long that took (ms). */
@@ -318,6 +324,7 @@ export class InkCanvas {
     // Prevents the browser from handling gestures itself (scroll, zoom).
     f.addEventListener('touchstart', (e) => e.preventDefault(), { passive: false })
 
+    window.addEventListener('plume:theme', this.onTheme)
     this.observer = new ResizeObserver(() => this.resize())
     this.observer.observe(container)
     this.resize()
@@ -325,6 +332,7 @@ export class InkCanvas {
 
   destroy(): void {
     this.destroyed = true
+    window.removeEventListener('plume:theme', this.onTheme)
     this.observer.disconnect()
     cancelAnimationFrame(this.frame)
     cancelAnimationFrame(this.inertia)
@@ -588,7 +596,7 @@ export class InkCanvas {
     ctx.rect(px0, py0, px1 - px0, py1 - py0)
     ctx.clip()
     // Outside the page (its shadow and the grey around it) is repainted too.
-    ctx.fillStyle = PAPER_BG
+    ctx.fillStyle = this.backdrop
     ctx.fillRect(px0, py0, px1 - px0, py1 - py0)
     this.pageTransform(ctx, pv)
     ctx.fillStyle = 'rgba(20, 30, 50, 0.10)'
@@ -712,7 +720,7 @@ export class InkCanvas {
   private renderScene(): void {
     const ctx = this.bctx
     ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.fillStyle = PAPER_BG
+    ctx.fillStyle = this.backdrop
     ctx.fillRect(0, 0, this.back.width, this.back.height)
     const top = -this.ty / this.zoom
     const bottom = (this.cssH - this.ty) / this.zoom
@@ -871,7 +879,7 @@ export class InkCanvas {
     ctx.roundRect(-w / 2, 6, w, ADD_ZONE - 18, 8)
     ctx.stroke()
     ctx.setLineDash([])
-    ctx.fillStyle = '#5d6676'
+    ctx.fillStyle = '#7f8898'
     ctx.font = '500 13px system-ui, sans-serif'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'

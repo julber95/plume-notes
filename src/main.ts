@@ -7,10 +7,13 @@ import { createAuth } from './sync/auth'
 import { SyncEngine } from './sync/engine'
 import { GraphClient } from './sync/graph'
 import { toast } from './ui/dom'
+import { applyTheme } from './ui/theme'
 import { openEditor, type EditorHandle } from './ui/editor'
 import { notOpenable, renderLibrary } from './ui/library'
 import { exportMinutes, openSettings } from './ui/settings'
 import { createSyncChip } from './ui/syncchip'
+
+applyTheme()
 
 const app = document.getElementById('app')!
 const auth = createAuth()

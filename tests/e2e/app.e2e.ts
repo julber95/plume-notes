@@ -930,5 +930,40 @@ describe('Plume in the browser', () => {
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
   })
+
+  it('has a dark appearance, with dark pages on request', async () => {
+    const tab = await device()
+    const { page, cdp } = tab
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('canvas.ink').waitFor()
+    await settle(page)
+    await pen(cdp, scribble(340, 200, 300, 1))
+    await page.getByRole('button', { name: 'Highlighter' }).click()
+    await pen(cdp, [[340, 260], [500, 262], [640, 260]])
+    await page.getByRole('button', { name: 'Back to library' }).click()
+
+    const bodyColour = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
+    expect(await bodyColour()).toBe('rgb(244, 245, 247)')
+    await page.getByRole('button', { name: 'Settings' }).click()
+    await page.getByRole('button', { name: 'Dark', exact: true }).click()
+    expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark')
+    expect(await bodyColour()).toBe('rgb(21, 24, 29)')
+    await shot(page, '27-dark-settings')
+    await page.getByLabel('Dark pages too, with the dark appearance').check()
+    expect(await page.evaluate(() => document.documentElement.classList.contains('dark-pages'))).toBe(true)
+    await page.getByRole('button', { name: 'Save' }).click()
+    await shot(page, '28-dark-library')
+
+    // Kept after a restart; the page is shown dark, the ink light.
+    await page.reload()
+    expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark')
+    await page.locator('.card.notebook').first().click()
+    await page.locator('canvas.ink').waitFor()
+    await settle(page, 600)
+    await shot(page, '29-dark-pages')
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
+  })
 })
 
