@@ -25,6 +25,9 @@ recent browser on a computer.
   to enlarge or shrink a closed shape.
 - Selection: circle strokes freehand with the lasso, then move, resize,
   recolour, duplicate, copy, cut, paste or delete them.
+- Import: a PDF becomes a notebook whose pages you write on (the original
+  text stays selectable in the exported PDF); a picture becomes a one-page
+  notebook. PDFs dropped into the OneDrive folder open the same way.
 - Pictures: insert an image on the page, then move, resize, duplicate or
   delete it like any selection; ink and highlighter go over it.
 - Page management: add, duplicate, move, delete, change the background.
@@ -35,7 +38,7 @@ recent browser on a computer.
 - Automatic PDF export to OneDrive, with a status indicator.
 - When a notebook is modified in two places, both versions are kept.
 
-Planned for version 2: PDF import, favourite pens.
+Planned next: favourite pens, typed text boxes.
 
 ## Development
 
@@ -57,6 +60,7 @@ npm run build      # production build in dist/
 | `src/geometry.ts`, `src/backgrounds.ts` | Stroke shapes and backgrounds, shared by screen and PDF |
 | `src/shapes.ts` | Shape recognition (line, rectangle, ellipse, curve…) |
 | `src/pdf/` | Building and reading PDFs (in a worker) |
+| `src/ui/pdfview.ts` | Display of imported PDF pages (PDF.js) |
 | `src/sync/` | Microsoft sign-in, OneDrive client, sync engine |
 | `src/ui/` | Library, writing screen, drawing engine |
 | `tests/` | Tests, including an in-memory fake OneDrive |

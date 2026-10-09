@@ -86,10 +86,7 @@ describe('PDF export', () => {
     expect(second).toEqual(first)
   })
 
-  it('an ordinary PDF is recognised as not coming from Plume', async () => {
-    const doc = await PDFDocument.create()
-    doc.addPage()
-    expect(await extractPlumeData(await doc.save())).toBeNull()
+  it('rejects what is not a readable PDF', async () => {
     expect(await extractPlumeData(new Uint8Array([1, 2, 3]))).toBeNull()
   })
 

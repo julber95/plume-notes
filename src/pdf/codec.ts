@@ -5,7 +5,7 @@
 // (hundredths of a point, pressure out of 255) delta-encoded then stored as
 // varints, which compresses very well.
 
-import { uid, type Background, type Orientation, type Page, type Stroke, type StrokeTool } from '../model'
+import { uid, type Asset, type Background, type Orientation, type Page, type Stroke, type StrokeTool } from '../model'
 import type { NotebookContent } from '../db'
 
 export const FORMAT_VERSION = 1
@@ -23,12 +23,19 @@ interface Header {
   bg: Background
   o: Orientation
   s: HeaderStroke[]
+  /** 1 when the page is a page of an imported PDF. */
+  pdf?: 1
 }
 
 export interface PageData {
   bg: Background
   orient: Orientation
   strokes: (Pick<Stroke, 'tool' | 'color' | 'width' | 'pts' | 'image'> & { imageIndex?: number })[]
+  /** Page of an imported PDF: its size, and its number in the PDF kept as `asset`. */
+  pdf?: boolean
+  w?: number
+  h?: number
+  pdfIndex?: number
 }
 
 const TOOL_CODE: Record<StrokeTool, HeaderStroke['t']> = { pen: 'p', pencil: 'g', highlighter: 'h', line: 'l', image: 'i' }
@@ -54,11 +61,12 @@ class Writer {
   }
 }
 
-export function encodePage(page: Pick<Page, 'bg' | 'orient'>, strokes: Pick<Stroke, 'tool' | 'color' | 'width' | 'pts'>[]): Uint8Array {
+export function encodePage(page: Pick<Page, 'bg' | 'orient' | 'pdf'>, strokes: Pick<Stroke, 'tool' | 'color' | 'width' | 'pts'>[]): Uint8Array {
   let images = 0
   const header: Header = {
     bg: page.bg,
     o: page.orient,
+    ...(page.pdf ? { pdf: 1 as const } : {}),
     s: strokes.map((s) => ({
       t: TOOL_CODE[s.tool],
       c: s.color,
@@ -139,6 +147,7 @@ export function decodePage(bytes: Uint8Array): PageData | null {
       bg: BGS.has(header.bg) ? header.bg : 'blank',
       orient: header.o === 'landscape' ? 'landscape' : 'portrait',
       strokes,
+      ...(header.pdf ? { pdf: true } : {}),
     }
   } catch {
     return null
@@ -149,16 +158,20 @@ export interface NotebookData {
   bg: Background
   orient: Orientation
   pages: PageData[]
+  /** The imported PDF the pages come from, without anything written by Plume. */
+  asset?: Uint8Array
 }
 
 /** Turns the data read into local pages and strokes (fresh ids). */
 export function dataToContent(notebookId: string, data: NotebookData): NotebookContent {
   const pages: Page[] = []
   const strokes: Stroke[] = []
+  const assets: Asset[] = data.asset ? [{ id: uid(), notebookId, bytes: data.asset }] : []
   for (const dp of data.pages) {
     const page: Page = { id: uid(), notebookId, bg: dp.bg, orient: dp.orient, rev: 0 }
+    if (dp.pdfIndex !== undefined && assets.length && dp.w && dp.h) Object.assign(page, { w: dp.w, h: dp.h, pdf: { asset: assets[0].id, index: dp.pdfIndex } } satisfies Partial<Page>)
     pages.push(page)
     dp.strokes.forEach(({ imageIndex: _i, ...s }, seq) => strokes.push({ ...s, id: uid(), pageId: page.id, seq }))
   }
-  return { pages, strokes }
+  return { pages, strokes, assets }
 }

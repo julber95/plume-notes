@@ -2,15 +2,16 @@
 // carrying its editable data (PieceInfo dictionary, the mechanism the PDF
 // format provides for an application's private data).
 
-import { PDFDocument, PDFName, PDFString, type PDFImage, type PDFRef } from 'pdf-lib'
+import { PDFDict, PDFDocument, PDFName, PDFString, type PDFImage, type PDFPage, type PDFRef } from 'pdf-lib'
 import { strToU8, zlibSync } from 'fflate'
 import { backgroundSpec } from '../backgrounds'
 import { centerline, hexToRgb, highlightRgb, penOutline, pencilOutline, simplify, smoothClosed } from '../geometry'
 import { GRAIN_TILE, PENCIL_LEVELS, grainSpecks, pencilAlpha, pencilLevel } from '../grain'
 import { pageSize, type Background, type Orientation, type Page, type Stroke } from '../model'
 import { FORMAT_VERSION, encodePage } from './codec'
+import { pageFrame } from './pagebox'
 
-export interface PdfPageInput extends Pick<Page, 'id' | 'bg' | 'orient' | 'rev'> {
+export interface PdfPageInput extends Pick<Page, 'id' | 'bg' | 'orient' | 'rev' | 'w' | 'h' | 'pdf'> {
   strokes: Stroke[]
   /** Pictures of the page, when `strokes` was not loaded because the page is cached. */
   imageStrokes?: Stroke[]
@@ -21,6 +22,8 @@ export interface PdfNotebookInput {
   bg: Background
   orient: Orientation
   pages: PdfPageInput[]
+  /** Imported PDFs the pages refer to, by id. */
+  assets?: Map<string, Uint8Array>
 }
 
 export interface PageCacheEntry {
@@ -62,22 +65,27 @@ function strokedPath(s: Stroke): string {
 
 const pictures = (page: PdfPageInput) => page.strokes.filter((s) => s.tool === 'image' && s.image && s.pts.length >= 6)
 
+/**
+ * What Plume draws on a page, in screen-like coordinates (origin at the top
+ * left, y down). The caller sets up those coordinates and closes them.
+ * Resource names start with "Plm" so they never clash with those of an
+ * imported PDF.
+ */
 function pageContent(page: PdfPageInput): string {
-  const { h } = pageSize(page.orient)
-  let out = `q 1 0 0 -1 0 ${num(h)} cm\n`
-  if (page.bg !== 'blank') out += '/Bg Do\n'
+  let out = ''
+  if (page.bg !== 'blank' && !page.pdf) out += '/PlmBg Do\n'
   // Pictures first: ink and highlighter go over them.
   pictures(page).forEach((s, i) => {
     const x = Math.min(s.pts[0], s.pts[3])
     const y = Math.min(s.pts[1], s.pts[4])
     const w = Math.abs(s.pts[3] - s.pts[0])
     const h = Math.abs(s.pts[4] - s.pts[1])
-    out += `q ${num(w)} 0 0 ${num(-h)} ${num(x)} ${num(y + h)} cm /Im${i} Do Q\n`
+    out += `q ${num(w)} 0 0 ${num(-h)} ${num(x)} ${num(y + h)} cm /PlmIm${i} Do Q\n`
   })
   out += '1 J 1 j\n'
   const highlights = page.strokes.filter((s) => s.tool === 'highlighter')
   if (highlights.length) {
-    out += 'q /GSh gs\n'
+    out += 'q /PlmGSh gs\n'
     for (const s of highlights) out += `${highlightRgb(s.color).map(num).join(' ')} RG ${num(s.width)} w\n${localPath(centerline(s.pts), 'S')}`
     out += 'Q\n'
   }
@@ -96,13 +104,13 @@ function pageContent(page: PdfPageInput): string {
       // An even light layer, then the grain pattern on top, both in the stroke's colour.
       const color = rgb(s.color)
       const level = pencilLevel(s.pts)
-      out += `q /GSb${level} gs ${color} rg\n${localPath(outline, 'f')}/GSg${level} gs /CsG cs ${color} /Grain scn\n${localPath(outline, 'f')}Q\n`
+      out += `q /PlmGSb${level} gs ${color} rg\n${localPath(outline, 'f')}/PlmGSg${level} gs /PlmCsG cs ${color} /PlmGrain scn\n${localPath(outline, 'f')}Q\n`
       fill = ''
     } else if (s.tool === 'line') {
       out += strokedPath(s)
     }
   }
-  return out + 'Q\n'
+  return out
 }
 
 function backgroundContent(bg: Background, w: number, h: number): string {
@@ -173,35 +181,89 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
     const { base, grain } = pencilAlpha(level)
     return { base: ctx.register(ctx.obj({ Type: 'ExtGState', CA: base, ca: base })), grain: ctx.register(ctx.obj({ Type: 'ExtGState', CA: grain, ca: grain })) }
   })
-  const grainResources = { pattern: ctx.obj({ Grain: grainPattern }), space: ctx.obj({ CsG: ['Pattern', 'DeviceRGB'] }) }
+  const pop = ctx.register(ctx.stream('Q\n'))
+
+  // Pages of imported PDFs are copied from their source, all those of one
+  // source together so that what they share (fonts…) is copied only once.
+  const copies = new Map<PdfPageInput, PDFPage>()
+  const bySource = new Map<string, PdfPageInput[]>()
+  for (const p of nb.pages) if (p.pdf && nb.assets?.has(p.pdf.asset)) bySource.set(p.pdf.asset, [...(bySource.get(p.pdf.asset) ?? []), p])
+  for (const [asset, users] of bySource) {
+    const source = await PDFDocument.load(nb.assets!.get(asset)!, { updateMetadata: false })
+    // A source page used twice (a duplicated page) needs a copy of its own.
+    const pending = users.filter((p) => p.pdf!.index < source.getPageCount())
+    while (pending.length) {
+      const seen = new Set<number>()
+      const batch = pending.filter((p) => !seen.has(p.pdf!.index) && seen.add(p.pdf!.index))
+      const copied = await doc.copyPages(source, batch.map((p) => p.pdf!.index))
+      batch.forEach((p, i) => copies.set(p, copied[i]))
+      for (const p of batch) pending.splice(pending.indexOf(p), 1)
+    }
+  }
+
+  /** Gives the page resources of its own (a PDF may share them between pages) and returns its dictionaries. */
+  const ownResources = (page: PDFPage): Record<'XObject' | 'ExtGState' | 'Pattern' | 'ColorSpace', PDFDict> => {
+    const shared = page.node.Resources()
+    const own = shared ? shared.clone(ctx) : ctx.obj({})
+    const out = {} as Record<string, PDFDict>
+    for (const key of ['XObject', 'ExtGState', 'Pattern', 'ColorSpace']) {
+      const name = PDFName.of(key)
+      const dict = own.lookupMaybe(name, PDFDict)
+      out[key] = dict ? dict.clone(ctx) : ctx.obj({})
+      own.set(name, out[key])
+    }
+    page.node.set(PDFName.of('Resources'), own)
+    return out
+  }
 
   for (const p of nb.pages) {
-    const { w, h } = pageSize(p.orient)
     let entry = cache.get(p.id)
     if (!entry || entry.rev !== p.rev) {
       entry = renderPage(p)
       cache.set(p.id, entry)
     }
 
-    const page = doc.addPage([w, h])
-    page.node.addContentStream(ctx.register(ctx.stream(entry.content, flate)))
-    page.node.setExtGState(PDFName.of('GSh'), highlighterState)
+    const copy = copies.get(p)
+    let page: PDFPage
+    let w: number
+    let h: number
+    let matrix: number[]
+    const added: PDFRef[] = []
+    if (copy) {
+      // The original page, untouched and closed off, then Plume's layer on top.
+      page = doc.addPage(copy)
+      ;({ w, h, matrix } = pageFrame(page))
+      // The library closes off the original content itself, with these two
+      // shared streams, the first time the page is modified.
+      page.node.normalize()
+      added.push(ctx.getPushGraphicsStateContentStream(), ctx.getPopGraphicsStateContentStream())
+    } else {
+      ;({ w, h } = pageSize(p))
+      page = doc.addPage([w, h])
+      matrix = [1, 0, 0, -1, 0, h]
+    }
+    const open = ctx.register(ctx.stream(`q ${matrix.map(num).join(' ')} cm\n`))
+    const content = ctx.register(ctx.stream(entry.content, flate))
+    added.push(open, content, pop)
+    for (const ref of [open, content, pop]) page.node.addContentStream(ref)
+
+    const res = ownResources(page)
+    res.ExtGState.set(PDFName.of('PlmGSh'), highlighterState)
     pencilStates.forEach((st, level) => {
-      page.node.setExtGState(PDFName.of(`GSb${level}`), st.base)
-      page.node.setExtGState(PDFName.of(`GSg${level}`), st.grain)
+      res.ExtGState.set(PDFName.of(`PlmGSb${level}`), st.base)
+      res.ExtGState.set(PDFName.of(`PlmGSg${level}`), st.grain)
     })
-    const resources = page.node.normalizedEntries().Resources
-    resources.set(PDFName.of('Pattern'), grainResources.pattern)
-    resources.set(PDFName.of('ColorSpace'), grainResources.space)
-    if (p.bg !== 'blank') {
-      const key = `${p.bg}/${p.orient}`
+    res.Pattern.set(PDFName.of('PlmGrain'), grainPattern)
+    res.ColorSpace.set(PDFName.of('PlmCsG'), ctx.obj(['Pattern', 'DeviceRGB']))
+    if (p.bg !== 'blank' && !copy) {
+      const key = `${p.bg}/${w}/${h}`
       let ref = backgrounds.get(key)
       if (!ref) {
         const body = zlibSync(strToU8(backgroundContent(p.bg, w, h)), { level: 6 })
         ref = ctx.register(ctx.stream(body, { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, w, h], Resources: {}, ...flate }))
         backgrounds.set(key, ref)
       }
-      page.node.setXObject(PDFName.of('Bg'), ref)
+      res.XObject.set(PDFName.of('PlmBg'), ref)
     }
     if (entry.images?.length) {
       const byId = new Map([...p.strokes, ...(p.imageStrokes ?? [])].map((s) => [s.id, s]))
@@ -210,12 +272,14 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
         if (!bytes) continue
         let image = embedded.get(bytes)
         if (!image) embedded.set(bytes, (image = await doc.embedJpg(bytes)))
-        page.node.setXObject(PDFName.of(`Im${i}`), image.ref)
+        res.XObject.set(PDFName.of(`PlmIm${i}`), image.ref)
       }
     }
     const data = ctx.register(ctx.stream(entry.data, flate))
     page.node.set(LastModified, stamp)
-    page.node.set(PieceInfo, ctx.obj({ Plume: { LastModified: stamp, Private: data } }))
+    // `Added` lists what Plume put on the page, so it can be taken off again
+    // to get the original page back.
+    page.node.set(PieceInfo, ctx.obj({ Plume: { LastModified: stamp, Private: data, Added: added } }))
   }
 
   doc.catalog.set(

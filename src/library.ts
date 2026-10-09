@@ -1,7 +1,7 @@
 // Library operations (folders and notebooks). They only write to local
 // storage; the sync engine then applies them to OneDrive.
 
-import { allNodes, clearNotebookContent, createNotebook as dbCreateNotebook, mutateNodes, purgeNodes, putNodes } from './db'
+import { allNodes, clearNotebookContent, createNotebook as dbCreateNotebook, mutateNodes, purgeNodes, putNodes, type NotebookContent } from './db'
 import { ROOT, sanitizeName, siblingNames, uid, uniqueName, type Background, type LibNode, type Orientation, type Page } from './model'
 
 export async function createFolder(parentId: string, rawName: string): Promise<LibNode> {
@@ -38,6 +38,32 @@ export async function createNotebook(parentId: string, rawName: string, bg: Back
     uploadedRev: -1,
   }
   await dbCreateNotebook(node, [page])
+  return node
+}
+
+/**
+ * Creates a notebook from ready-made content (an imported PDF or picture).
+ * `build` receives the id of the notebook being created.
+ */
+export async function importNotebook(parentId: string, rawName: string, bg: Background, orient: Orientation, build: (notebookId: string) => NotebookContent): Promise<LibNode> {
+  const nodes = await allNodes()
+  const now = Date.now()
+  const id = uid()
+  const content = build(id)
+  const node: LibNode = {
+    id,
+    kind: 'notebook',
+    name: uniqueName(sanitizeName(rawName), siblingNames(nodes, parentId, 'notebook')),
+    parentId,
+    createdAt: now,
+    updatedAt: now,
+    pageIds: content.pages.map((p) => p.id),
+    bg,
+    orient,
+    rev: 0,
+    uploadedRev: -1,
+  }
+  await dbCreateNotebook(node, content.pages, content.strokes, content.assets)
   return node
 }
 

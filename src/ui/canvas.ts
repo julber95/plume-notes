@@ -44,6 +44,8 @@ export interface InkHost {
   onLassoTap(x: number, y: number, canPaste: boolean): void
   /** A picture of this page has finished decoding (its previews can be redrawn). */
   onPictureReady(pageId: string): void
+  /** Image of a page of an imported PDF, `scale` pixels per point (null if it cannot be shown). */
+  renderPdf(page: Page, scale: number): Promise<CanvasImageSource | null>
 }
 
 interface RStroke extends Stroke {
@@ -63,6 +65,9 @@ interface PageView {
   loading: boolean
   bg?: BgSpec
   hasPaths: boolean
+  /** Imported PDF page: its image, and the scale (pixels per point) it was drawn at. */
+  pdf?: { image: CanvasImageSource; scale: number }
+  pdfBusy?: boolean
   /** Image of the whole page, used while scrolling and zooming. */
   cache?: HTMLCanvasElement
   cacheScale: number
@@ -84,6 +89,8 @@ const MAX_ZOOM = 8
 const SELECT_COLOR = '#2b4c8c'
 /** Maximum size of a page's cached image (pixels). */
 const CACHE_PIXELS = 5e6
+/** Maximum size of the image of an imported PDF page (pixels). */
+const PDF_PIXELS = 6e6
 /** How long the pen must stay still at the end of a stroke to ask for a clean shape (ms). */
 const HOLD_MS = 450
 /** Smallest stroke (diagonal, in points; about 6 mm) that can become a shape. */
@@ -335,7 +342,7 @@ export class InkCanvas {
     let y = GAP
     let maxW = 0
     this.pages = pages.map((page) => {
-      const { w, h } = pageSize(page.orient)
+      const { w, h } = pageSize(page)
       const prev = reload ? undefined : old.get(page.id)
       const pv: PageView = {
         page,
@@ -348,6 +355,7 @@ export class InkCanvas {
         bg: prev && prev.page.bg === page.bg && prev.w === w ? prev.bg : undefined,
         hasPaths: prev?.hasPaths ?? false,
         cache: prev?.cache,
+        pdf: prev && prev.page.pdf?.asset === page.pdf?.asset && prev.page.pdf?.index === page.pdf?.index ? prev.pdf : undefined,
         cacheScale: prev?.cacheScale ?? 0,
         cacheValid: !!prev?.cacheValid && prev.page.bg === page.bg && prev.w === w,
       }
@@ -600,10 +608,14 @@ export class InkCanvas {
     ctx.beginPath()
     ctx.rect(0, 0, pv.w, pv.h)
     ctx.clip()
-    // In a small preview the ruling is toned down, or it would grey out the page.
-    if (this.boost) ctx.globalAlpha = 0.4
-    this.drawBackground(ctx, pv, pixelScale)
-    ctx.globalAlpha = 1
+    if (pv.page.pdf) {
+      this.drawPdf(ctx, pv, pixelScale)
+    } else {
+      // In a small preview the ruling is toned down, or it would grey out the page.
+      if (this.boost) ctx.globalAlpha = 0.4
+      this.drawBackground(ctx, pv, pixelScale)
+      ctx.globalAlpha = 1
+    }
     let complete = true
     if (pv.strokes) {
       ctx.lineCap = 'round'
@@ -632,6 +644,30 @@ export class InkCanvas {
     }
     ctx.restore()
     return complete
+  }
+
+  /** Draws the page of the imported PDF, and asks for a sharper image of it when needed. */
+  private drawPdf(ctx: CanvasRenderingContext2D, pv: PageView, pixelScale: number): void {
+    const wanted = Math.min(pixelScale, Math.sqrt(PDF_PIXELS / (pv.w * pv.h)))
+    if (pv.pdf) {
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(pv.pdf.image, 0, 0, pv.w, pv.h)
+    }
+    // While the view is moving, the image already there will do.
+    if (pv.pdfBusy || (pv.pdf && (pv.pdf.scale >= wanted * 0.8 || this.moving || this.boost))) return
+    pv.pdfBusy = true
+    const id = pv.page.id
+    this.host
+      .renderPdf(pv.page, wanted)
+      .then((image) => {
+        if (!image) return
+        pv.pdf = { image, scale: wanted }
+        pv.cacheValid = false
+        this.invalidate()
+        this.host.onPictureReady(id)
+      })
+      .catch((e) => console.error('PDF page', e))
+      .finally(() => (pv.pdfBusy = false))
   }
 
   private cacheScaleFor(pv: PageView): number {
@@ -700,6 +736,7 @@ export class InkCanvas {
         }
         pv.cache = undefined
         pv.cacheValid = false
+        pv.pdf = undefined
       }
       if (!visible) continue
 

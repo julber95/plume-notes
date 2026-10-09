@@ -1,10 +1,10 @@
 // Local storage (IndexedDB). Used by the interface and by the PDF worker:
 // no DOM access here.
 
-import type { LibNode, Page, Stroke } from './model'
+import type { Asset, LibNode, Page, Stroke } from './model'
 
 const DB_NAME = 'plume'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -12,16 +12,24 @@ export function openDb(): Promise<IDBDatabase> {
   if (!dbPromise) {
     dbPromise = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION)
-      req.onupgradeneeded = () => {
+      req.onupgradeneeded = (e) => {
         const db = req.result
-        const nodes = db.createObjectStore('nodes', { keyPath: 'id' })
-        nodes.createIndex('remoteId', 'remoteId')
-        const pages = db.createObjectStore('pages', { keyPath: 'id' })
-        pages.createIndex('notebookId', 'notebookId')
-        const strokes = db.createObjectStore('strokes', { keyPath: 'id' })
-        strokes.createIndex('pageId', 'pageId')
-        db.createObjectStore('kv')
-        db.createObjectStore('pdfcache', { keyPath: 'pageId' })
+        if (e.oldVersion < 1) {
+          const nodes = db.createObjectStore('nodes', { keyPath: 'id' })
+          nodes.createIndex('remoteId', 'remoteId')
+          const pages = db.createObjectStore('pages', { keyPath: 'id' })
+          pages.createIndex('notebookId', 'notebookId')
+          const strokes = db.createObjectStore('strokes', { keyPath: 'id' })
+          strokes.createIndex('pageId', 'pageId')
+          db.createObjectStore('kv')
+          db.createObjectStore('pdfcache', { keyPath: 'pageId' })
+        }
+        if (e.oldVersion < 2) {
+          // Imported PDFs. The cached page renderings use names that changed
+          // with this version, so they are rebuilt.
+          db.createObjectStore('assets', { keyPath: 'id' }).createIndex('notebookId', 'notebookId')
+          req.transaction!.objectStore('pdfcache').clear()
+        }
       }
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
@@ -36,7 +44,7 @@ export async function closeDb(): Promise<void> {
   dbPromise = null
 }
 
-type StoreName = 'nodes' | 'pages' | 'strokes' | 'kv' | 'pdfcache'
+type StoreName = 'nodes' | 'pages' | 'strokes' | 'kv' | 'pdfcache' | 'assets'
 
 function req<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -159,7 +167,7 @@ function nextRev(rev: number): number {
   return Math.max(rev + 1, Date.now())
 }
 
-const CONTENT: StoreName[] = ['nodes', 'pages', 'strokes', 'pdfcache']
+const CONTENT: StoreName[] = ['nodes', 'pages', 'strokes', 'pdfcache', 'assets']
 
 function deleteStrokesOfPage(t: IDBTransaction, pageId: string): Promise<void> {
   t.objectStore('pdfcache').delete(pageId)
@@ -244,11 +252,17 @@ export function applyPageStructure(notebookId: string, change: PageStructureChan
 }
 
 /** Creates a notebook with its first pages. */
-export function createNotebook(node: LibNode, pages: Page[]): Promise<void> {
-  return tx(['nodes', 'pages'], 'readwrite', (t) => {
+export function createNotebook(node: LibNode, pages: Page[], strokes: Stroke[] = [], assets: Asset[] = []): Promise<void> {
+  return tx(['nodes', 'pages', 'strokes', 'assets'], 'readwrite', (t) => {
     t.objectStore('nodes').put(node)
     for (const p of pages) t.objectStore('pages').put(p)
+    for (const s of strokes) t.objectStore('strokes').put(s)
+    for (const a of assets) t.objectStore('assets').put(a)
   })
+}
+
+export function getAsset(id: string): Promise<Asset | undefined> {
+  return tx(['assets'], 'readonly', (t) => req(t.objectStore('assets').get(id)) as Promise<Asset | undefined>)
 }
 
 async function deleteNotebookContent(t: IDBTransaction, notebookId: string): Promise<void> {
@@ -258,6 +272,8 @@ async function deleteNotebookContent(t: IDBTransaction, notebookId: string): Pro
     pages.delete(id)
     await deleteStrokesOfPage(t, id)
   }
+  const assets = t.objectStore('assets')
+  for (const id of (await req(assets.index('notebookId').getAllKeys(notebookId))) as string[]) assets.delete(id)
 }
 
 /** Permanently deletes local nodes and the content of notebooks. */
@@ -278,6 +294,7 @@ export function clearNotebookContent(notebookId: string): Promise<void> {
 export interface NotebookContent {
   pages: Page[]
   strokes: Stroke[]
+  assets?: Asset[]
 }
 
 /**
@@ -296,6 +313,7 @@ export function replaceNotebookContent(notebookId: string, expectRev: number, co
       await deleteNotebookContent(t, notebookId)
       for (const p of content.pages) t.objectStore('pages').put(p)
       for (const s of content.strokes) t.objectStore('strokes').put(s)
+      for (const a of content.assets ?? []) t.objectStore('assets').put(a)
       node.pageIds = content.pages.map((p) => p.id)
       patch(node)
       nodes.put(node)
@@ -317,6 +335,8 @@ export interface PdfCacheRecord {
 export interface NotebookSnapshot {
   node: LibNode
   pages: (Page & { strokes: Stroke[]; cached?: PdfCacheRecord; imageStrokes?: Stroke[] })[]
+  /** Imported PDFs used by the pages. */
+  assets: Asset[]
 }
 
 /** Consistent read of a whole notebook (for PDF export). */
@@ -346,7 +366,12 @@ export function snapshotNotebook(notebookId: string): Promise<NotebookSnapshot |
       }
       pages.push({ ...p, strokes, cached, imageStrokes })
     }
-    return { node, pages }
+    const assets: Asset[] = []
+    for (const id of new Set(pages.map((p) => p.pdf?.asset))) {
+      const a = id && ((await req(t.objectStore('assets').get(id))) as Asset | undefined)
+      if (a) assets.push(a)
+    }
+    return { node, pages, assets }
   })
 }
 

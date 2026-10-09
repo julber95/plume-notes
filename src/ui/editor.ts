@@ -1,7 +1,9 @@
 // Writing screen: toolbar, pages, undo/redo.
 
-import { applyPageStructure, applyStrokeChange, getNode, getPages, getStrokes, kvGet, kvSet } from '../db'
-import { BACKGROUNDS, uid, type Background, type LibNode, type Page, type Stroke } from '../model'
+import { applyPageStructure, applyStrokeChange, getAsset, getNode, getPages, getStrokes, kvGet, kvSet } from '../db'
+import { BACKGROUNDS, pageSize, uid, type Background, type LibNode, type Page, type Stroke } from '../model'
+import { PdfView } from './pdfview'
+import { preparePicture } from './pictures'
 import { InkCanvas, type StrokeChange, type ToolKind, type ToolState } from './canvas'
 import { closePopovers, confirmDialog, h, iconButton, icons, showPopover, toast } from './dom'
 
@@ -98,6 +100,8 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   // Floating bar of actions for the selection (or "Paste" after a tap).
   const selBar = h('div', { class: 'sel-bar', hidden: true })
 
+  const pdfView = new PdfView(async (asset) => (await getAsset(asset))?.bytes)
+
   // Picture import: the file chosen is reduced if needed, then placed on the page.
   const picker = h('input', {
     type: 'file',
@@ -108,19 +112,8 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
       picker.value = ''
       if (!file) return
       try {
-        const source = await createImageBitmap(file)
-        // At most 2000 pixels on the long side: sharp on a page, light in the PDF.
-        const scale = Math.min(1, 2000 / Math.max(source.width, source.height))
-        const sheet = document.createElement('canvas')
-        sheet.width = Math.max(1, Math.round(source.width * scale))
-        sheet.height = Math.max(1, Math.round(source.height * scale))
-        const g = sheet.getContext('2d')!
-        g.fillStyle = '#ffffff'
-        g.fillRect(0, 0, sheet.width, sheet.height)
-        g.drawImage(source, 0, 0, sheet.width, sheet.height)
-        const blob = await new Promise<Blob | null>((done) => sheet.toBlob(done, 'image/jpeg', 0.88))
-        if (!blob) throw new Error('encoding failed')
-        if (!canvas.insertImage('image/jpeg', new Uint8Array(await blob.arrayBuffer()), sheet.width, sheet.height)) throw new Error('page not ready')
+        const picture = await preparePicture(file)
+        if (!canvas.insertImage(picture.mime, picture.data, picture.width, picture.height)) throw new Error('page not ready')
         // Ready to be moved and resized.
         tool.kind = 'lasso'
         saveTool()
@@ -185,6 +178,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
         markCurrentThumb(i)
       },
       onPictureReady: (pageId) => refreshThumb(pageId),
+      renderPdf: async (page, scale) => (page.pdf ? pdfView.render(page.pdf.asset, page.pdf.index, pageSize(page).w, scale) : null),
       onAddPage: () => addPage(pages.length - 1),
       onSelection: (rect) => showSelectionBar(rect),
       onLassoTap: (x, y, canPaste) => showPasteBar(x, y, canPaste),
@@ -441,7 +435,8 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
 
   function addPage(after: number): void {
     const ref = pages[after] ?? pages[pages.length - 1]
-    const page: Page = { id: uid(), notebookId, bg: ref?.bg ?? node!.bg ?? 'blank', orient: ref?.orient ?? node!.orient ?? 'portrait', rev: 0 }
+    // After a page of an imported PDF, a plain page for notes, in the same direction.
+    const page: Page = { id: uid(), notebookId, bg: (ref?.pdf ? undefined : ref?.bg) ?? node!.bg ?? 'blank', orient: ref?.orient ?? node!.orient ?? 'portrait', rev: 0 }
     pages.splice(after + 1, 0, page)
     void enqueue(() => applyPageStructure(notebookId, { pageIds: pageIds(), putPages: [page] }))
     structureChanged(after + 1)
@@ -596,7 +591,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
             h('button', { class: 'page-go', type: 'button', onClick: () => (canvas.scrollToPage(i), renderPanel()) }, `Page ${i + 1}`),
             h(
               'select',
-              { 'aria-label': `Background of page ${i + 1}`, onChange: (e: Event) => setBackground(i, (e.target as HTMLSelectElement).value as Background) },
+              { 'aria-label': `Background of page ${i + 1}`, disabled: !!p.pdf, title: p.pdf ? 'Page of an imported PDF' : undefined, onChange: (e: Event) => setBackground(i, (e.target as HTMLSelectElement).value as Background) },
               ...BACKGROUNDS.map((b) => h('option', { value: b.id, selected: b.id === p.bg }, b.label)),
             ),
             iconButton(icons.up, 'Move up', () => movePage(i, -1), 'small'),
@@ -661,6 +656,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
       window.removeEventListener('keydown', onKey)
       thumbWatcher.disconnect()
       clearTimeout(thumbTimer)
+      pdfView.destroy()
       closePopovers()
       canvas.destroy()
     },

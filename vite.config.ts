@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config'
 import { VitePWA } from 'vite-plugin-pwa'
+// @ts-expect-error plain JavaScript helper, without type declarations
+import { pdfAssets } from './scripts/pdf-assets.mjs'
 
 export default defineConfig({
   // Relative paths: the application works whatever sub-folder it is hosted in
@@ -9,6 +11,7 @@ export default defineConfig({
   build: { target: 'es2022' },
   worker: { format: 'es' },
   plugins: [
+    pdfAssets(),
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
@@ -29,7 +32,8 @@ export default defineConfig({
           { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
-      workbox: { globPatterns: ['**/*.{js,css,html,svg,png,woff2}'] },
+      // Includes the PDF display engine and its fonts, so imported PDFs open offline too.
+      workbox: { globPatterns: ['**/*.{js,mjs,css,html,svg,png,woff2,pfb,ttf}'], maximumFileSizeToCacheInBytes: 4 * 1024 * 1024 },
     }),
   ],
   test: { environment: 'node', include: ['tests/**/*.test.ts'] },

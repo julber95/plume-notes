@@ -1,8 +1,11 @@
 // Library: folders and notebooks, as they appear in OneDrive.
 
 import { allNodes, kvGet, kvSet } from '../db'
-import { createFolder, createNotebook, deleteNode, moveNode, pathTo, renameNode, subtree } from '../library'
-import { BACKGROUNDS, ROOT, isDirtyNotebook, type Background, type LibNode, type Orientation } from '../model'
+import { createFolder, createNotebook, deleteNode, importNotebook, moveNode, pathTo, renameNode, subtree } from '../library'
+import { BACKGROUNDS, ROOT, isDirtyNotebook, pageSize, uid, type Background, type LibNode, type Orientation, type Page } from '../model'
+import { extractData } from '../pdf/client'
+import { dataToContent } from '../pdf/codec'
+import { preparePicture } from './pictures'
 import type { SyncEngine } from '../sync/engine'
 import { button, confirmDialog, dialogButtons, h, iconButton, icons, openDialog, openMenu, promptDialog, toast } from './dom'
 
@@ -86,6 +89,36 @@ function moveDialog(nodes: LibNode[], node: LibNode): Promise<string | null> {
   })
 }
 
+/** Turns a PDF or a picture chosen by the user into a notebook. */
+async function importFile(file: File, folderId: string): Promise<LibNode | null> {
+  const name = file.name.replace(/\.[a-z0-9]{1,5}$/i, '') || 'Imported'
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+    const data = await extractData(new Uint8Array(await file.arrayBuffer()))
+    if (!data || !data.pages.length) {
+      toast('This PDF could not be opened: it is damaged or protected by a password.', 6000)
+      return null
+    }
+    return importNotebook(folderId, name, data.bg, data.orient, (id) => dataToContent(id, data))
+  }
+  // A picture: one page, in the direction of the picture, which fills it.
+  const picture = await preparePicture(file)
+  const orient: Orientation = picture.width > picture.height ? 'landscape' : 'portrait'
+  return importNotebook(folderId, name, 'blank', orient, (notebookId) => {
+    const page: Page = { id: uid(), notebookId, bg: 'blank', orient, rev: 0 }
+    const { w, h } = pageSize(page)
+    const margin = 24
+    const fit = Math.min((w - 2 * margin) / picture.width, (h - 2 * margin) / picture.height)
+    const pw = picture.width * fit
+    const ph = picture.height * fit
+    const x = (w - pw) / 2
+    const y = (h - ph) / 2
+    return {
+      pages: [page],
+      strokes: [{ id: uid(), pageId: page.id, seq: 1, tool: 'image', color: '', width: 0, pts: Float32Array.from([x, y, 0, x + pw, y + ph, 0]), image: { mime: picture.mime, data: picture.data } }],
+    }
+  })
+}
+
 export async function renderLibrary(root: HTMLElement, folderId: string, deps: LibraryDeps): Promise<void> {
   const nodes = (await allNodes()).filter((n) => !n.deleted)
   if (folderId !== ROOT && !nodes.some((n) => n.id === folderId && n.kind === 'folder')) return deps.goTo(ROOT)
@@ -156,6 +189,26 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     )
   }
 
+  const importer = h('input', {
+    type: 'file',
+    accept: 'application/pdf,.pdf,image/*',
+    hidden: true,
+    onChange: async () => {
+      const file = importer.files?.[0]
+      importer.value = ''
+      if (!file) return
+      try {
+        const node = await importFile(file, folderId)
+        if (!node) return
+        deps.changed()
+        deps.open(node)
+      } catch (e) {
+        console.error('Import', e)
+        toast('This file could not be imported.')
+      }
+    },
+  })
+
   const crumbs = h(
     'nav',
     { class: 'crumbs', 'aria-label': 'Location' },
@@ -204,6 +257,8 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
           h('span', { class: 'menu-icon', html: icons.folderPlus }),
           'Folder',
         ),
+        h('button', { class: 'btn', type: 'button', title: 'Import a PDF or a picture', onClick: () => importer.click() }, h('span', { class: 'menu-icon', html: icons.importFile }), 'Import'),
+        importer,
       ),
       ...notices.map((n) =>
         h('div', { class: 'notice', role: 'alert' }, h('span', {}, n.text), iconButton(icons.close, 'Dismiss notice', () => void deps.engine.dismissNotice(n.id), 'small')),
@@ -217,7 +272,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
 
 export function notOpenable(node: LibNode): boolean {
   if (node.foreign) {
-    toast('This PDF was not created with Plume. PDF import is planned for the next version.', 5000)
+    toast('This PDF could not be opened: it is damaged or protected by a password.', 5000)
     return true
   }
   if (node.needsDownload && !node.pageIds?.length) {

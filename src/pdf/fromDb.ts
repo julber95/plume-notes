@@ -14,7 +14,13 @@ export async function buildFromDb(notebookId: string): Promise<BuiltPdf> {
   const cache: PageCache = new Map()
   for (const p of snap.pages) if (p.cached) cache.set(p.id, p.cached)
   const bytes = await buildNotebookPdf(
-    { name: snap.node.name, bg: snap.node.bg ?? 'blank', orient: snap.node.orient ?? 'portrait', pages: snap.pages },
+    {
+      name: snap.node.name,
+      bg: snap.node.bg ?? 'blank',
+      orient: snap.node.orient ?? 'portrait',
+      pages: snap.pages,
+      assets: new Map(snap.assets.map((a) => [a.id, a.bytes])),
+    },
     cache,
   )
   const fresh: PdfCacheRecord[] = []

@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { chromium, type Browser, type BrowserContext, type CDPSession, type Page } from 'playwright'
+import { PDFDocument, StandardFonts } from 'pdf-lib'
 import { build, preview, type PreviewServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { extractPlumeData } from '../../src/pdf/extract'
@@ -781,6 +782,81 @@ describe('Plume in the browser', () => {
     await expect.poll(() => page.locator('.thumbs').isHidden()).toBe(true)
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
+  })
+
+  it('imports a PDF to write on it, and a picture as a notebook', async () => {
+    // A two-page handout with text, as a teacher would give it.
+    const source = await PDFDocument.create()
+    const font = await source.embedFont(StandardFonts.HelveticaBold)
+    for (const title of ['Chapter 1: limits', 'Exercises']) {
+      const p = source.addPage([595.28, 841.89])
+      p.drawText(title, { x: 60, y: 740, size: 34, font })
+      p.drawText('The quick brown fox jumps over the lazy dog.', { x: 60, y: 690, size: 14, font })
+    }
+    const sourceBytes = await source.save()
+    writeFileSync(`${OUT}handout.pdf`, sourceBytes)
+
+    const tab = await device()
+    const { page, cdp } = tab
+    await page.locator('.sync-chip').click()
+    await page.getByRole('button', { name: 'Sign in to OneDrive' }).click()
+    await page.waitForFunction(() => document.querySelector('.sync-chip')?.getAttribute('data-state') === 'ok')
+    await page.locator('.lib-actions input[type=file]').setInputFiles(`${OUT}handout.pdf`)
+    await page.locator('canvas.ink').waitFor()
+    await expect.poll(() => page.locator('.page-pill').last().textContent()).toBe('1 / 2')
+    await expect.poll(() => page.locator('.editor-title').textContent()).toBe('handout')
+
+    // The page of the PDF is displayed: dark pixels where its title is.
+    const titleInk = () =>
+      page.evaluate(() => {
+        const c = document.querySelector<HTMLCanvasElement>('canvas.ink')!
+        const d = c.getContext('2d')!.getImageData(250, 320, 850, 140).data
+        let dark = 0
+        for (let k = 0; k < d.length; k += 4) if (d[k] < 80 && d[k + 1] < 80 && d[k + 2] < 80) dark++
+        return dark
+      })
+    await expect.poll(titleInk, { timeout: 20_000 }).toBeGreaterThan(2000)
+
+    // Annotate: highlight the title, write under it.
+    await page.getByRole('button', { name: 'Highlighter' }).click()
+    await pen(cdp, [[150, 265], [300, 266], [520, 265]])
+    await page.getByRole('button', { name: 'Pen', exact: true }).click()
+    await pen(cdp, scribble(150, 420, 300, 2))
+    await settle(page, 500)
+    await shot(page, '22-pdf-annotated')
+
+    await page.getByRole('button', { name: 'Back to library' }).click()
+    await expect.poll(() => drive.find('Plume/handout.pdf')?.content?.length ?? 0, { timeout: 20_000 }).toBeGreaterThan(1000)
+    await expect.poll(async () => (await extractPlumeData(drive.find('Plume/handout.pdf')!.content!))?.pages[0].strokes.length, { timeout: 20_000 }).toBe(2)
+    const exported = drive.find('Plume/handout.pdf')!.content!
+    writeFileSync(`${OUT}handout-annotated.pdf`, exported)
+    const back = (await extractPlumeData(exported))!
+    expect(back.pages.map((p) => [!!p.pdf, p.strokes.length])).toEqual([[true, 2], [true, 0]])
+    expect((await PDFDocument.load(exported)).getPageCount()).toBe(2)
+    expect((await PDFDocument.load(back.asset!)).getPageCount()).toBe(2)
+
+    // A picture imported as a file becomes a notebook of its own.
+    await page.locator('.lib-actions input[type=file]').setInputFiles(`${OUT}test-picture.jpg`)
+    await page.locator('canvas.ink').waitFor()
+    await expect.poll(() => page.locator('.editor-title').textContent()).toBe('test-picture')
+    await expect.poll(() => page.locator('.page-pill').last().textContent()).toBe('1 / 1')
+    await settle(page, 500)
+    await shot(page, '23-picture-as-notebook')
+    await page.getByRole('button', { name: 'Back to library' }).click()
+    await expect.poll(() => drive.find('Plume/test-picture.pdf')?.content?.length ?? 0, { timeout: 20_000 }).toBeGreaterThan(1000)
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
+
+    // Elsewhere: the annotated PDF opens with its pages and its notes.
+    const pc = await device(1600, 900)
+    await pc.page.locator('.sync-chip').click()
+    await pc.page.getByRole('button', { name: 'Sign in to OneDrive' }).click()
+    await pc.page.locator('.card.notebook', { hasText: 'handout' }).filter({ hasText: '2 pages' }).click()
+    await pc.page.locator('canvas.ink').waitFor()
+    await settle(pc.page, 1500)
+    await shot(pc.page, '24-pdf-other-device')
+    expect(pc.errors).toEqual([])
+    await pc.ctx.close()
   })
 })
 

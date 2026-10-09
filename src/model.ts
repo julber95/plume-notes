@@ -36,6 +36,18 @@ export interface Page {
   orient: Orientation
   /** Incremented on every change to the page. */
   rev: number
+  /** Size in points when the page is not A4 (a page of an imported PDF). */
+  w?: number
+  h?: number
+  /** The page shows this page of an imported PDF, under what is written. */
+  pdf?: { asset: string; index: number }
+}
+
+/** An imported PDF, kept whole: its pages are shown and exported from it. */
+export interface Asset {
+  id: string
+  notebookId: string
+  bytes: Uint8Array
 }
 
 export const ROOT = 'root'
@@ -74,8 +86,9 @@ export interface LibNode {
   foreign?: boolean
 }
 
-export function pageSize(orient: Orientation): { w: number; h: number } {
-  return orient === 'landscape' ? { w: A4.h, h: A4.w } : { w: A4.w, h: A4.h }
+export function pageSize(page: Pick<Page, 'orient' | 'w' | 'h'>): { w: number; h: number } {
+  if (page.w && page.h) return { w: page.w, h: page.h }
+  return page.orient === 'landscape' ? { w: A4.h, h: A4.w } : { w: A4.w, h: A4.h }
 }
 
 export function uid(): string {
