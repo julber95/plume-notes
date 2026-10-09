@@ -35,6 +35,9 @@ const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 /** The search in progress, kept when the library redraws itself (after a sync, for instance). */
 const searching = { folder: '', query: '', focused: false }
 
+/** Shown in place of a folder: everything marked as a favourite, wherever it is. */
+export const FAVOURITES = '~favourites'
+const LONG_PRESS_MS = 500
 const TREE_KEY = 'plume.tree'
 const OPEN_KEY = 'plume.treeOpen'
 /** Too narrow for the folder tree to sit beside the content: it slides over it instead. */
@@ -222,7 +225,8 @@ async function importFile(file: File, folderId: string): Promise<LibNode | null>
 
 export async function renderLibrary(root: HTMLElement, folderId: string, deps: LibraryDeps): Promise<void> {
   const nodes = (await allNodes()).filter((n) => !n.deleted)
-  if (folderId !== ROOT && !nodes.some((n) => n.id === folderId && n.kind === 'folder')) return deps.goTo(ROOT)
+  const favView = folderId === FAVOURITES
+  if (folderId !== ROOT && !favView && !nodes.some((n) => n.id === folderId && n.kind === 'folder')) return deps.goTo(ROOT)
   const here = nodes.filter((n) => n.parentId === folderId)
   const folders = here.filter((n) => n.kind === 'folder').sort((a, b) => collator.compare(a.name, b.name))
   const notebooks = here.filter((n) => n.kind === 'notebook').sort((a, b) => collator.compare(a.name, b.name))
@@ -235,18 +239,14 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
 
   const itemMenu = (node: LibNode, anchor: HTMLElement) =>
     openMenu(anchor, [
-      ...(node.kind === 'notebook'
-        ? [
-            {
-              label: node.favorite ? 'Remove from favourites' : 'Add to favourites',
-              icon: icons.star,
-              action: async () => {
-                await updateNode(node.id, (n) => void (n.favorite = !n.favorite))
-                void renderLibrary(root, folderId, deps)
-              },
-            },
-          ]
-        : []),
+      {
+        label: node.favorite ? 'Remove from favourites' : 'Add to favourites',
+        icon: icons.star,
+        action: async () => {
+          await updateNode(node.id, (n) => void (n.favorite = !n.favorite))
+          void renderLibrary(root, folderId, deps)
+        },
+      },
       {
         label: 'Rename',
         icon: icons.pen,
@@ -345,14 +345,49 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     if (tile) sub = place
     else if (where) sub = `${place} · ${sub}`
     const changed = modified(node)
+    // A long press (or a right click) opens the same menu as the three dots.
+    let timer = 0
+    let held = false
+    let start = { x: 0, y: 0 }
+    const release = () => {
+      clearTimeout(timer)
+      timer = 0
+    }
     return h(
       'div',
       {
         class: `card ${isFolder ? 'folder' : 'notebook'} ${node.favorite ? 'favorite' : ''} ${tile ? 'tile' : ''}`,
         role: 'button',
         tabIndex: 0,
-        onClick: () => deps.open(node),
+        onClick: () => {
+          if (!held) deps.open(node)
+        },
         onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && deps.open(node),
+        onPointerdown: (e: PointerEvent) => {
+          held = false
+          release()
+          if (e.pointerType === 'mouse' || more.contains(e.target as Node)) return
+          start = { x: e.clientX, y: e.clientY }
+          timer = window.setTimeout(() => {
+            timer = 0
+            held = true
+            itemMenu(node, more)
+          }, LONG_PRESS_MS)
+        },
+        onPointermove: (e: PointerEvent) => {
+          if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) release()
+        },
+        onPointerup: release,
+        onPointercancel: release,
+        onPointerleave: release,
+        onContextmenu: (e: MouseEvent) => {
+          e.preventDefault()
+          // On a touch screen the long press above may have opened it already.
+          if (held) return
+          release()
+          held = true
+          itemMenu(node, more)
+        },
       },
       isFolder ? h('span', { class: 'folder-icon', html: icons.folder }) : notebookCover(node),
       h('div', { class: 'card-text' }, h('div', { class: 'card-name' }, node.name), h('div', { class: 'card-sub' }, sub, pending ? h('span', { class: 'pending-dot', title: 'Not yet sent to OneDrive' }) : null)),
@@ -386,6 +421,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     'nav',
     { class: 'crumbs', 'aria-label': 'Location' },
     h('button', { type: 'button', class: folderId === ROOT ? 'current' : '', onClick: () => deps.goTo(ROOT) }, 'Plume'),
+    ...(favView ? [h('span', { class: 'crumb-sep' }, '›'), h('button', { type: 'button', class: 'current' }, 'Favourites')] : []),
     ...pathTo(nodes, folderId).flatMap((f, i, all) => [h('span', { class: 'crumb-sep' }, '›'), h('button', { type: 'button', class: i === all.length - 1 ? 'current' : '', onClick: () => deps.goTo(f.id) }, f.name)]),
   )
 
@@ -398,7 +434,8 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     return [...(dirs.length ? [h('div', { class: 'grid folders' }, ...dirs.map((n) => card(n, where)))] : []), ...(books.length ? [h('div', { class: 'grid' }, ...books.map((n) => card(n, where)))] : [])]
   }
   const heading = (title: string, count: number) => h('h2', { class: 'lib-section' }, title, h('span', { class: 'count' }, String(count)))
-  const section = (title: string, items: LibNode[]) => (items.length ? [heading(title, items.length), ...grids(items)] : [])
+  const sectionOf = (title: string, items: LibNode[], where = false) => (items.length ? [heading(title, items.length), ...grids(items, where)] : [])
+  const section = (title: string, items: LibNode[]) => sectionOf(title, items)
   /** Shortcuts: small sheets on a single row, which scrolls sideways. */
   const strip = (title: string, items: LibNode[]) => (items.length ? [heading(title, items.length), h('div', { class: 'grid strip' }, ...items.map((n) => card(n, true, true)))] : [])
 
@@ -412,11 +449,19 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
       listing.replaceChildren(...(found.length ? [h('h2', { class: 'lib-section' }, `${found.length} result${found.length > 1 ? 's' : ''}`), ...grids(found, true)] : [h('p', { class: 'empty' }, `Nothing is named "${query.trim()}".`)]))
       return
     }
+    if (favView) {
+      const favourites = nodes.filter((n) => n.favorite)
+      listing.replaceChildren(
+        ...(favourites.length
+          ? [...sectionOf('Folders', favourites.filter((n) => n.kind === 'folder').sort(byName), true), ...sectionOf('Notebooks', favourites.filter((n) => n.kind === 'notebook').sort(byName), true)]
+          : [h('p', { class: 'empty' }, 'No favourites yet. Press and hold a notebook or a folder, then choose "Add to favourites".')]),
+      )
+      return
+    }
     const books = nodes.filter((n) => n.kind === 'notebook')
-    // Shortcuts, on the first screen of the library only.
-    const favourites = folderId === ROOT ? books.filter((n) => n.favorite).sort(byName) : []
+    // The notebooks opened last, on the first screen of the library only.
     const recent = folderId === ROOT ? books.filter((n) => n.openedAt).sort((a, b) => b.openedAt! - a.openedAt!).slice(0, 10) : []
-    const shortcuts = [...strip('Favourites', favourites), ...strip('Recent', recent)]
+    const shortcuts = strip('Recent', recent)
     listing.replaceChildren(
       ...shortcuts,
       ...(empty
@@ -493,10 +538,38 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
       if (id === ROOT || unfolded.has(id)) for (const k of kids) add(k.id, k.name, depth + 1)
     }
     add(ROOT, 'Plume', 0)
+    rows.splice(
+      1,
+      0,
+      h(
+        'div',
+        { class: `tree-row ${favView ? 'current' : ''}`, style: 'padding-left:4px' },
+        h('span', { class: 'tree-toggle' }),
+        h(
+          'button',
+          { type: 'button', class: 'tree-go', 'aria-current': favView ? 'page' : undefined, onClick: () => (favView ? setTree(false, true) : deps.goTo(FAVOURITES)) },
+          h('span', { class: 'menu-icon', html: icons.star }),
+          h('span', { class: 'tree-name' }, 'Favourites'),
+        ),
+      ),
+    )
     tree.replaceChildren(...rows)
   }
   drawTree()
 
+  /** Top of the first screen: the name of the application, and what the library holds. */
+  const total = { books: nodes.filter((n) => n.kind === 'notebook').length, pages: nodes.reduce((sum, n) => sum + (n.pageIds?.length ?? 0), 0) }
+  const hero = h(
+    'section',
+    { class: 'hero' },
+    h('span', { class: 'brand-mark', html: logo }),
+    h(
+      'div',
+      {},
+      h('h1', { class: 'wordmark' }, 'Plume'),
+      h('p', { class: 'hero-sub' }, 'Handwritten notes, synced with OneDrive', h('span', { class: 'hero-stats' }, [plural(total.books, 'notebook'), plural(total.pages, 'page')].join(' · '))),
+    ),
+  )
   const themeButton = iconButton(icons.sun, 'Appearance', () => openThemeMenu(themeButton))
   const library = h('div', { class: `library ${treeShown() ? '' : 'tree-hidden'}` })
   /** Shows or hides the tree; on narrow screens only (`drawerOnly`), or wherever it is. */
@@ -508,7 +581,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
   }
 
   library.append(
-    h('aside', { class: 'lib-side' }, h('div', { class: 'brand' }, h('span', { class: 'brand-mark', html: logo }), 'Plume'), tree),
+    h('aside', { class: 'lib-side' }, h('div', { class: 'brand' }, h('span', { class: 'brand-mark', html: logo }), h('span', { class: 'wordmark' }, 'Plume')), tree),
     h('div', { class: 'lib-scrim', onClick: () => setTree(false) }),
     h(
       'div',
@@ -523,9 +596,10 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
         themeButton,
         iconButton(icons.settings, 'Settings', deps.openSettings),
       ),
+      folderId === ROOT ? hero : null,
       h(
         'div',
-        { class: 'lib-actions' },
+        { class: 'lib-actions', hidden: favView },
         h(
           'button',
           {

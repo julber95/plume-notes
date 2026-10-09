@@ -1,4 +1,5 @@
 import '@fontsource-variable/inter/wght.css'
+import '@fontsource/parisienne/latin-400.css'
 import './styles.css'
 import { registerSW } from 'virtual:pwa-register'
 import { getNode, updateNode } from './db'
@@ -10,7 +11,7 @@ import { GraphClient } from './sync/graph'
 import { toast } from './ui/dom'
 import { applyTheme } from './ui/theme'
 import { openEditor, type EditorHandle } from './ui/editor'
-import { notOpenable, renderLibrary } from './ui/library'
+import { FAVOURITES, notOpenable, renderLibrary } from './ui/library'
 import { exportMinutes, openSettings } from './ui/settings'
 import { createSyncChip } from './ui/syncchip'
 
@@ -41,12 +42,13 @@ function login(): void {
 // ---------- Navigation (the address reflects the screen shown) ----------
 
 function parseRoute(): { view: 'folder' | 'notebook'; id: string } {
+  if (location.hash === '#/favourites') return { view: 'folder', id: FAVOURITES }
   const m = /^#\/(f|n)\/([\w-]+)$/.exec(location.hash)
   if (!m) return { view: 'folder', id: ROOT }
   return { view: m[1] === 'n' ? 'notebook' : 'folder', id: m[2] }
 }
 
-const folderHash = (id: string) => (id === ROOT ? '#/' : `#/f/${id}`)
+const folderHash = (id: string) => (id === ROOT ? '#/' : id === FAVOURITES ? '#/favourites' : `#/f/${id}`)
 
 let routing = Promise.resolve()
 

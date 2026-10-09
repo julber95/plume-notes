@@ -923,10 +923,15 @@ describe('Plume in the browser', () => {
     // Favourites.
     await page.locator('.listing .grid').last().locator('.card', { hasText: 'Algebra homework' }).getByRole('button', { name: /Actions for/ }).click()
     await page.getByRole('menuitem', { name: 'Add to favourites' }).click()
-    await expect.poll(() => section('Favourites').allTextContents()).toEqual(['Algebra homework'])
     await shot(page, '25-library-shortcuts')
+    // Favourites have their own screen, reached from the folder tree; folders can be favourites too.
+    await page.locator('.listing .card.folder', { hasText: 'Physics' }).getByRole('button', { name: /Actions for/ }).click()
+    await page.getByRole('menuitem', { name: 'Add to favourites' }).click()
+    await page.locator('.tree').getByRole('button', { name: 'Favourites' }).click()
+    await page.locator('.crumbs .current', { hasText: 'Favourites' }).waitFor()
+    await expect.poll(() => page.locator('.listing .card-name').allTextContents()).toEqual(['Physics', 'Algebra homework'])
     await page.reload()
-    await expect.poll(() => section('Favourites').allTextContents()).toEqual(['Algebra homework'])
+    await expect.poll(() => page.locator('.listing .card-name').allTextContents()).toEqual(['Physics', 'Algebra homework'])
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
   })

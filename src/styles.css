@@ -252,7 +252,56 @@ button:focus-visible,
 
 .brand-mark {
   display: inline-grid;
+  flex: none;
 }
+
+/* The name of the application, handwritten */
+
+.wordmark {
+  font-family: 'Parisienne', 'Inter Variable', cursive;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--accent);
+}
+
+.brand .wordmark {
+  font-size: 25px;
+  line-height: 1;
+  padding-top: 3px;
+}
+
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 30px 0 26px;
+  border-bottom: 1px solid var(--line);
+}
+
+.hero .brand-mark svg {
+  width: 60px;
+  height: 60px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 58px;
+  line-height: 1.05;
+}
+
+.hero-sub {
+  display: grid;
+  gap: 1px;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.hero-stats {
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
 
 .tree {
   display: grid;
@@ -484,6 +533,11 @@ button.tree-toggle {
   cursor: pointer;
 }
 
+.card {
+  -webkit-touch-callout: none;
+  touch-action: pan-x pan-y;
+}
+
 .card:last-child {
   border-bottom: 0;
 }
@@ -612,12 +666,19 @@ button.tree-toggle {
   scroll-snap-align: start;
 }
 
+.tile .folder-icon,
 .tile .cover-well {
   width: auto;
   height: 88px;
   border-bottom: 1px solid var(--line);
   border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
   background: var(--panel);
+}
+
+.tile .folder-icon svg {
+  width: 34px;
+  height: 34px;
+  stroke-width: 1.2;
 }
 
 .tile .cover {
