@@ -944,11 +944,11 @@ describe('Plume in the browser', () => {
     await page.getByRole('button', { name: 'Back to library' }).click()
 
     const bodyColour = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
-    expect(await bodyColour()).toBe('rgb(244, 245, 247)')
+    expect(await bodyColour()).toBe('rgb(255, 255, 255)')
     await page.getByRole('button', { name: 'Settings' }).click()
     await page.getByRole('button', { name: 'Dark', exact: true }).click()
     expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe('dark')
-    expect(await bodyColour()).toBe('rgb(21, 24, 29)')
+    expect(await bodyColour()).toBe('rgb(19, 18, 23)')
     await shot(page, '27-dark-settings')
     await page.getByLabel('Dark pages too, with the dark appearance').check()
     expect(await page.evaluate(() => document.documentElement.classList.contains('dark-pages'))).toBe(true)

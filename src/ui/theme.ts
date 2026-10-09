@@ -39,14 +39,14 @@ export function darkPages(): boolean {
  * shown inverted, so it is drawn light to end up dark.
  */
 export function backdrop(): string {
-  return isDark() && !darkPages() ? '#22262d' : '#e7e9ed'
+  return isDark() && !darkPages() ? '#1e1c25' : '#ecebf0'
 }
 
 export function applyTheme(): void {
   const root = document.documentElement
   root.dataset.theme = isDark() ? 'dark' : 'light'
   root.classList.toggle('dark-pages', darkPages())
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark() ? '#15181d' : '#f4f5f7')
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark() ? '#131217' : '#ffffff')
   window.dispatchEvent(new Event('plume:theme'))
 }
 

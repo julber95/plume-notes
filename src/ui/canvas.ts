@@ -91,7 +91,7 @@ type Action =
 const GAP = 14
 const ADD_ZONE = 64
 const MAX_ZOOM = 8
-const SELECT_COLOR = '#2b4c8c'
+const SELECT_COLOR = '#7a2de0'
 /** Maximum size of a page's cached image (pixels). */
 const CACHE_PIXELS = 5e6
 /** Maximum size of the image of an imported PDF page (pixels). */
@@ -993,7 +993,7 @@ export class InkCanvas {
       ctx.moveTo(mx(sel.loop[0]), my(sel.loop[1]))
       for (let i = 2; i < sel.loop.length; i += 2) ctx.lineTo(mx(sel.loop[i]), my(sel.loop[i + 1]))
       ctx.closePath()
-      ctx.fillStyle = 'rgba(43, 76, 140, 0.05)'
+      ctx.fillStyle = 'rgba(122, 45, 224, 0.05)'
       ctx.fill()
       ctx.setLineDash(dash)
       ctx.lineJoin = 'round'

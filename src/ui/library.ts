@@ -9,7 +9,7 @@ import { dataToContent } from '../pdf/codec'
 import { firstPagePicture } from './firstpage'
 import { preparePicture } from './pictures'
 import type { SyncEngine } from '../sync/engine'
-import { button, confirmDialog, dialogButtons, h, iconButton, icons, openDialog, openMenu, promptDialog, toast } from './dom'
+import { button, confirmDialog, dialogButtons, h, iconButton, icons, logo, openDialog, openMenu, promptDialog, toast } from './dom'
 
 export interface LibraryDeps {
   engine: SyncEngine
@@ -33,6 +33,45 @@ const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 
 /** The search in progress, kept when the library redraws itself (after a sync, for instance). */
 const searching = { folder: '', query: '', focused: false }
+
+const TREE_KEY = 'plume.tree'
+const OPEN_KEY = 'plume.treeOpen'
+/** Too narrow for the folder tree to sit beside the content: it slides over it instead. */
+const narrow = window.matchMedia('(max-width: 699px)')
+/** Is the tree shown over the content (narrow screens only)? */
+let drawer = false
+/** Folder shown at the last drawing: its parents are unfolded when it changes. */
+let lastFolder: string | null = null
+
+function stored(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function store(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    // storage unavailable: the choice lasts until the application is closed
+  }
+}
+
+/** Folders unfolded in the tree. */
+const unfolded = new Set<string>(
+  (() => {
+    try {
+      const v: unknown = JSON.parse(stored(OPEN_KEY) ?? '[]')
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+    } catch {
+      return []
+    }
+  })(),
+)
+
+const treeShown = () => (narrow.matches ? drawer : stored(TREE_KEY) !== '0')
 
 interface NotebookOptions {
   bg: Background
@@ -241,14 +280,15 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
   /** The notebook's first page; until its picture is ready, a sheet with the notebook's ruling. */
   const notebookCover = (node: LibNode): HTMLElement => {
     const cover = h('div', { class: `cover paper bg-${node.bg ?? 'blank'} ${node.orient === 'landscape' ? 'landscape' : ''}` })
+    const well = h('div', { class: 'cover-well' }, cover)
     const show = (url: string) => {
       cover.classList.add('pictured')
       cover.replaceChildren(h('img', { src: url, alt: '', draggable: false }))
     }
     const known = shown.get(node.id)
     if (known) show(known.url)
-    if (node.foreign || (node.needsDownload && !node.pageIds?.length)) return cover
-    if (known?.rev === (node.rev ?? 0) && known.page === node.pageIds?.[0]) return cover
+    if (node.foreign || (node.needsDownload && !node.pageIds?.length)) return well
+    if (known?.rev === (node.rev ?? 0) && known.page === node.pageIds?.[0]) return well
     // A notebook can appear on several cards (favourites, recent…): its picture is prepared once.
     let ready = preparing.get(node.id)
     if (!ready) {
@@ -267,7 +307,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
       preparing.set(node.id, ready)
     }
     void ready.then((url) => url && turn === drawing && show(url))
-    return cover
+    return well
   }
 
   const card = (node: LibNode, where = false): HTMLElement => {
@@ -292,7 +332,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     return h(
       'div',
       { class: `card ${isFolder ? 'folder' : 'notebook'} ${node.favorite ? 'favorite' : ''}`, role: 'button', tabIndex: 0, onClick: () => deps.open(node), onKeydown: (e: KeyboardEvent) => e.key === 'Enter' && deps.open(node) },
-      isFolder ? h('div', { class: 'cover folder-cover', html: icons.folder }) : notebookCover(node),
+      isFolder ? h('span', { class: 'folder-icon', html: icons.folder }) : notebookCover(node),
       node.favorite ? h('span', { class: 'fav-mark', title: 'Favourite', html: icons.star }) : null,
       h('div', { class: 'card-text' }, h('div', { class: 'card-name' }, node.name), h('div', { class: 'card-sub' }, sub, pending ? h('span', { class: 'pending-dot', title: 'Not yet sent to OneDrive' }) : null)),
       more,
@@ -328,8 +368,14 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
 
   const empty = folders.length + notebooks.length === 0
   const byName = (a: LibNode, b: LibNode) => collator.compare(a.name, b.name)
+  /** Folders as compact rows, then notebooks as sheets. */
+  const grids = (items: LibNode[], where = false) => {
+    const rows = items.filter((n) => n.kind === 'folder')
+    const sheets = items.filter((n) => n.kind === 'notebook')
+    return [...(rows.length ? [h('div', { class: 'grid folders' }, ...rows.map((n) => card(n, where)))] : []), ...(sheets.length ? [h('div', { class: 'grid' }, ...sheets.map((n) => card(n, where)))] : [])]
+  }
   const section = (title: string, items: LibNode[], where = false) =>
-    items.length ? [h('h2', { class: 'lib-section' }, title), h('div', { class: 'grid' }, ...items.map((n) => card(n, where)))] : []
+    items.length ? [h('h2', { class: 'lib-section' }, title, h('span', { class: 'count' }, String(items.length))), ...grids(items, where)] : []
 
   /** What is listed under the buttons: the folder, or what matches the search. */
   const listing = h('div', { class: 'listing' })
@@ -338,7 +384,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     if (q) {
       // Search the names of everything in the library, wherever it is.
       const found = nodes.filter((n) => n.name.toLowerCase().includes(q)).sort((a, b) => (a.kind === b.kind ? byName(a, b) : a.kind === 'folder' ? -1 : 1))
-      listing.replaceChildren(...(found.length ? section(`${found.length} result${found.length > 1 ? 's' : ''}`, found, true) : [h('p', { class: 'empty' }, `Nothing is named "${query.trim()}".`)]))
+      listing.replaceChildren(...(found.length ? [h('h2', { class: 'lib-section' }, `${found.length} result${found.length > 1 ? 's' : ''}`), ...grids(found, true)] : [h('p', { class: 'empty' }, `Nothing is named "${query.trim()}".`)]))
       return
     }
     const books = nodes.filter((n) => n.kind === 'notebook')
@@ -350,7 +396,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
       ...shortcuts,
       ...(empty
         ? [h('p', { class: 'empty' }, folderId === ROOT ? 'No notes yet. Create a notebook to start writing.' : 'This folder is empty.')]
-        : [...(shortcuts.length ? [h('h2', { class: 'lib-section' }, 'All notes')] : []), h('div', { class: 'grid' }, ...folders.map((n) => card(n)), ...notebooks.map((n) => card(n)))]),
+        : [...section('Folders', folders), ...section('Notebooks', notebooks)]),
     )
   }
   if (searching.folder !== folderId) Object.assign(searching, { folder: folderId, query: '', focused: false })
@@ -368,11 +414,88 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
   const wasSearching = searching.focused
   showListing(searching.query)
 
-  root.replaceChildren(
+  // ---------- Folder tree ----------
+
+  const allFolders = nodes.filter((n) => n.kind === 'folder')
+  if (lastFolder !== folderId) {
+    // Arriving in a folder: the way to it is unfolded, and the tree gets out of the way on narrow screens.
+    for (const f of pathTo(nodes, folderId).slice(0, -1)) unfolded.add(f.id)
+    lastFolder = folderId
+    drawer = false
+  }
+  const tree = h('nav', { class: 'tree', 'aria-label': 'Folders' })
+  const treeRow = (id: string, name: string, depth: number, kids: LibNode[]): HTMLElement => {
+    const open = unfolded.has(id)
+    return h(
+      'div',
+      { class: `tree-row ${id === folderId ? 'current' : ''}`, style: `padding-left:${4 + depth * 16}px` },
+      id !== ROOT && kids.length
+        ? h('button', {
+            type: 'button',
+            class: `tree-toggle ${open ? 'open' : ''}`,
+            'aria-label': `${open ? 'Fold' : 'Unfold'} ${name}`,
+            'aria-expanded': String(open),
+            html: icons.chevron,
+            onClick: () => {
+              if (open) unfolded.delete(id)
+              else unfolded.add(id)
+              store(OPEN_KEY, JSON.stringify([...unfolded]))
+              drawTree()
+            },
+          })
+        : h('span', { class: 'tree-toggle' }),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'tree-go',
+          'aria-current': id === folderId ? 'page' : undefined,
+          onClick: () => {
+            if (id === folderId) setTree(false, true)
+            else deps.goTo(id)
+          },
+        },
+        h('span', { class: 'menu-icon', html: id === ROOT ? icons.home : icons.folder }),
+        h('span', { class: 'tree-name' }, name),
+      ),
+    )
+  }
+  const drawTree = (): void => {
+    const rows: HTMLElement[] = []
+    const add = (id: string, name: string, depth: number) => {
+      const kids = allFolders.filter((n) => n.parentId === id).sort(byName)
+      rows.push(treeRow(id, name, depth, kids))
+      if (id === ROOT || unfolded.has(id)) for (const k of kids) add(k.id, k.name, depth + 1)
+    }
+    add(ROOT, 'Plume', 0)
+    tree.replaceChildren(...rows)
+  }
+  drawTree()
+
+  const library = h('div', { class: `library ${treeShown() ? '' : 'tree-hidden'}` })
+  /** Shows or hides the tree; on narrow screens only (`drawerOnly`), or wherever it is. */
+  const setTree = (shown: boolean, drawerOnly = false): void => {
+    if (narrow.matches) drawer = shown
+    else if (drawerOnly) return
+    else store(TREE_KEY, shown ? '1' : '0')
+    library.classList.toggle('tree-hidden', !shown)
+  }
+
+  library.append(
+    h('aside', { class: 'lib-side' }, h('div', { class: 'brand' }, h('span', { class: 'brand-mark', html: logo }), 'Plume'), tree),
+    h('div', { class: 'lib-scrim', onClick: () => setTree(false) }),
     h(
       'div',
-      { class: 'library' },
-      h('header', { class: 'lib-head' }, crumbs, h('div', { class: 'spacer' }), deps.syncChip, iconButton(icons.settings, 'Settings', deps.openSettings)),
+      { class: 'lib-main' },
+      h(
+        'header',
+        { class: 'lib-head' },
+        iconButton(icons.sidebar, 'Folders', () => setTree(library.classList.contains('tree-hidden'))),
+        crumbs,
+        h('div', { class: 'spacer' }),
+        deps.syncChip,
+        iconButton(icons.settings, 'Settings', deps.openSettings),
+      ),
       h(
         'div',
         { class: 'lib-actions' },
@@ -418,6 +541,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
       listing,
     ),
   )
+  root.replaceChildren(library)
   if (wasSearching) search.focus()
 }
 

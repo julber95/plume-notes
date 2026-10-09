@@ -17,7 +17,11 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<s
 }
 
 const svg = (body: string) =>
-  `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`
+  `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`
+
+/** The feather of the application icon, in the accent colour. */
+export const logo =
+  '<svg viewBox="0 0 64 64" width="24" height="24" aria-hidden="true"><rect width="64" height="64" rx="14" fill="var(--accent-fill)"/><path d="M45 13c-13 2-23 12-27 26l-3 12 3-2 5-7c9 0 17-5 20-13l-7 1 9-6c1-3 1-7 0-11z" fill="#fff"/><path d="M17 51c4-12 11-21 22-29" fill="none" stroke="var(--accent-fill)" stroke-width="2.2" stroke-linecap="round"/></svg>'
 
 export const icons = {
   back: svg('<path d="M15 5l-7 7 7 7"/>'),
@@ -50,6 +54,8 @@ export const icons = {
   more: svg('<circle cx="12" cy="5.5" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="18.5" r="1.3" fill="currentColor"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8"/>'),
   close: svg('<path d="M6 6l12 12M18 6L6 18"/>'),
+  chevron: svg('<path d="M9.5 6.5l5.5 5.5-5.5 5.5"/>'),
+  home: svg('<path d="M4.5 11L12 4.5l7.5 6.5"/><path d="M6.5 9.8V19h11V9.8"/>'),
   up: svg('<path d="M6 14l6-6 6 6"/>'),
   down: svg('<path d="M6 10l6 6 6-6"/>'),
   copy: svg('<rect x="8" y="8" width="11" height="12" rx="1.5"/><path d="M5 16V5.5A1.5 1.5 0 016.5 4H15"/>'),
