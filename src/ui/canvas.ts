@@ -1203,6 +1203,24 @@ export class InkCanvas {
     return true
   }
 
+  /**
+   * Places ready-made strokes (a pair of axes, for instance) in the middle of
+   * what is visible on the page in view, and selects them as a group.
+   */
+  insertGroup(parts: Pick<Stroke, 'tool' | 'color' | 'width' | 'pts'>[]): boolean {
+    const pv = this.pages[this.currentPageIndex()]
+    if (!pv?.strokes || !parts.length) return false
+    this.clearSelection()
+    let box = strokeBBox(parts[0])
+    for (const p of parts) box = unionBox(box, strokeBBox(p))
+    const w = box[2] - box[0]
+    const h = box[3] - box[1]
+    const cx = Math.min(pv.w - w / 2 - 8, Math.max(w / 2 + 8, (this.cssW / 2 - this.tx) / this.zoom - pv.x))
+    const cy = Math.min(pv.h - h / 2 - 8, Math.max(h / 2 + 8, (this.cssH / 2 - this.ty) / this.zoom - pv.y))
+    this.addCopies(pv, parts.map((p) => ({ ...p, id: '', pageId: pv.page.id, seq: 0 })), cx - (box[0] + box[2]) / 2, cy - (box[1] + box[3]) / 2)
+    return true
+  }
+
   duplicateSelection(): void {
     const sel = this.selection
     if (sel) this.addCopies(sel.pv, this.selected().map(plain), 14, 14, sel.loop.map((v) => v + 14))

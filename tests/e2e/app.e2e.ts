@@ -965,5 +965,42 @@ describe('Plume in the browser', () => {
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
   })
+
+  it('inserts graduated axes to draw a graph in', async () => {
+    const tab = await device()
+    const { page, cdp } = tab
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByRole('radio', { name: 'Blank' }).click()
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('canvas.ink').waitFor()
+    await settle(page)
+    await page.getByRole('button', { name: 'Insert', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Axes for a graph' }).click()
+    await page.getByLabel('x from').fill('-2')
+    await page.getByLabel('x to').fill('6')
+    await page.getByLabel('y from').fill('3')
+    await page.getByLabel('y to').fill('1') // the wrong way round
+    await page.getByRole('button', { name: 'Insert', exact: true }).last().click()
+    await page.getByText('Each axis must go from a smaller number to a larger one.').waitFor()
+    await page.getByLabel('y from').fill('-1')
+    await page.getByLabel('y to').fill('4')
+    await page.getByRole('button', { name: 'Insert', exact: true }).last().click()
+    await page.locator('.sel-bar').waitFor() // inserted as one selected group
+    const count = await strokeCount(page)
+    expect(count).toBeGreaterThan(40)
+    // Draw a curve in it with the pen.
+    await page.getByRole('button', { name: 'Pen', exact: true }).click()
+    await pen(cdp, Array.from({ length: 60 }, (_, i): Pt => [440 + i * 6, 470 - Math.sin(i / 9) * 90, 0.4]))
+    await settle(page)
+    expect(await strokeCount(page)).toBe(count + 1)
+    await page.screenshot({ path: `${OUT}30-axes.png`, clip: { x: 250, y: 150, width: 800, height: 560 } })
+    // One undo removes the whole set of axes.
+    await page.getByRole('button', { name: 'Undo' }).click()
+    await page.getByRole('button', { name: 'Undo' }).click()
+    await settle(page)
+    expect(await strokeCount(page)).toBe(0)
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
+  })
 })
 

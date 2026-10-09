@@ -1,6 +1,7 @@
 // Writing screen: toolbar, pages, undo/redo.
 
 import { applyPageStructure, applyStrokeChange, getAsset, getNode, getPages, getStrokes, kvGet, kvSet } from '../db'
+import { buildAxes } from '../axes'
 import { BACKGROUNDS, pageSize, uid, type Background, type LibNode, type Page, type Stroke } from '../model'
 import { PdfView } from './pdfview'
 import { preparePicture } from './pictures'
@@ -124,6 +125,49 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     },
   })
 
+  // "Insert" menu: a picture, or a pair of graduated axes.
+  const insertButton: HTMLButtonElement = iconButton(icons.insert, 'Insert', () =>
+    openMenu(insertButton, [
+      { label: 'Picture', icon: icons.image, action: () => picker.click() },
+      { label: 'Axes for a graph', icon: icons.axes, action: () => void insertAxes() },
+    ]),
+  )
+
+  async function insertAxes(): Promise<void> {
+    const last = (await kvGet<{ xMin: number; xMax: number; yMin: number; yMax: number; grid: boolean }>('axes')) ?? { xMin: -5, xMax: 5, yMin: -5, yMax: 5, grid: true }
+    const chosen = await openDialog<typeof last>('Axes for a graph', (d) => {
+      const field = (value: number, label: string) => h('input', { type: 'number', value, step: 'any', inputMode: 'decimal', 'aria-label': label })
+      const xMin = field(last.xMin, 'x from')
+      const xMax = field(last.xMax, 'x to')
+      const yMin = field(last.yMin, 'y from')
+      const yMax = field(last.yMax, 'y to')
+      const grid = h('input', { type: 'checkbox', checked: last.grid })
+      const problem = h('p', { class: 'error-text', hidden: true }, 'Each axis must go from a smaller number to a larger one.')
+      return h(
+        'form',
+        {
+          onSubmit: (e: Event) => {
+            e.preventDefault()
+            const v = { xMin: Number(xMin.value), xMax: Number(xMax.value), yMin: Number(yMin.value), yMax: Number(yMax.value), grid: grid.checked }
+            if (![v.xMin, v.xMax, v.yMin, v.yMax].every(Number.isFinite) || v.xMax <= v.xMin || v.yMax <= v.yMin) problem.hidden = false
+            else d.close(v)
+          },
+        },
+        h('div', { class: 'field inline' }, h('span', {}, 'x from'), xMin, h('span', {}, 'to'), xMax),
+        h('div', { class: 'field inline' }, h('span', {}, 'y from'), yMin, h('span', {}, 'to'), yMax),
+        h('label', { class: 'check' }, grid, h('span', {}, 'Show a grid')),
+        problem,
+        dialogButtons(button('Cancel', () => d.close(null)), h('button', { class: 'btn primary', type: 'submit' }, 'Insert')),
+      )
+    })
+    if (!chosen) return
+    await kvSet('axes', chosen)
+    if (!canvas.insertGroup(buildAxes(chosen))) return void toast('The page is not ready yet.')
+    // Ready to be moved and resized.
+    tool.kind = 'lasso'
+    saveTool()
+  }
+
   const toolbar = h(
     'header',
     { class: 'toolbar' },
@@ -140,7 +184,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
         return b
       }),
     ),
-    iconButton(icons.image, 'Insert a picture', () => picker.click()),
+    insertButton,
     quick,
     h('div', { class: 'spacer' }),
     undoBtn,
