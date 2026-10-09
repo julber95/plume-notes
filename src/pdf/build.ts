@@ -2,7 +2,7 @@
 // carrying its editable data (PieceInfo dictionary, the mechanism the PDF
 // format provides for an application's private data).
 
-import { PDFDict, PDFDocument, PDFName, PDFString, type PDFImage, type PDFPage, type PDFRef } from 'pdf-lib'
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString, type PDFImage, type PDFPage, type PDFRef } from 'pdf-lib'
 import { strToU8, zlibSync } from 'fflate'
 import { backgroundSpec } from '../backgrounds'
 import { centerline, hexToRgb, highlightRgb, penOutline, pencilOutline, simplify, smoothClosed } from '../geometry'
@@ -11,7 +11,7 @@ import { pageSize, type Background, type Orientation, type Page, type Stroke } f
 import { FORMAT_VERSION, encodePage } from './codec'
 import { pageFrame } from './pagebox'
 
-export interface PdfPageInput extends Pick<Page, 'id' | 'bg' | 'orient' | 'rev' | 'w' | 'h' | 'pdf'> {
+export interface PdfPageInput extends Pick<Page, 'id' | 'bg' | 'orient' | 'rev' | 'w' | 'h' | 'pdf' | 'bookmark'> {
   strokes: Stroke[]
   /** Pictures of the page, when `strokes` was not loaded because the page is cached. */
   imageStrokes?: Stroke[]
@@ -216,6 +216,7 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
     return out
   }
 
+  const bookmarks: { title: string; page: PDFRef }[] = []
   for (const p of nb.pages) {
     let entry = cache.get(p.id)
     if (!entry || entry.rev !== p.rev) {
@@ -275,11 +276,26 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
         res.XObject.set(PDFName.of(`PlmIm${i}`), image.ref)
       }
     }
+    if (p.bookmark) bookmarks.push({ title: p.bookmark, page: page.ref })
     const data = ctx.register(ctx.stream(entry.data, flate))
     page.node.set(LastModified, stamp)
     // `Added` lists what Plume put on the page, so it can be taken off again
     // to get the original page back.
     page.node.set(PieceInfo, ctx.obj({ Plume: { LastModified: stamp, Private: data, Added: added } }))
+  }
+
+  if (bookmarks.length) {
+    // Real PDF bookmarks: any PDF reader lists them in its bookmarks panel.
+    const outline = ctx.nextRef()
+    const items = bookmarks.map(() => ctx.nextRef())
+    bookmarks.forEach((b, i) => {
+      const item = ctx.obj({ Title: PDFHexString.fromText(b.title), Parent: outline, Dest: [b.page, 'Fit'] })
+      if (i > 0) item.set(PDFName.of('Prev'), items[i - 1])
+      if (i < items.length - 1) item.set(PDFName.of('Next'), items[i + 1])
+      ctx.assign(items[i], item)
+    })
+    ctx.assign(outline, ctx.obj({ Type: 'Outlines', First: items[0], Last: items[items.length - 1], Count: items.length }))
+    doc.catalog.set(PDFName.of('Outlines'), outline)
   }
 
   doc.catalog.set(

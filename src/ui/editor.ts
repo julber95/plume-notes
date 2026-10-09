@@ -5,7 +5,7 @@ import { BACKGROUNDS, pageSize, uid, type Background, type LibNode, type Page, t
 import { PdfView } from './pdfview'
 import { preparePicture } from './pictures'
 import { InkCanvas, type StrokeChange, type ToolKind, type ToolState } from './canvas'
-import { closePopovers, confirmDialog, h, iconButton, icons, showPopover, toast } from './dom'
+import { button, closePopovers, confirmDialog, dialogButtons, h, iconButton, icons, openDialog, openMenu, promptDialog, showPopover, toast } from './dom'
 
 export interface EditorHandle {
   notebookId: string
@@ -519,18 +519,110 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     visibleThumbs.clear()
     const current = canvas.currentPageIndex()
     const previous = new Map([...thumbs.querySelectorAll<HTMLElement>('.thumb')].map((el) => [el.dataset.page!, el.querySelector('canvas')]))
+    const marked = pages.map((p, i) => ({ p, i })).filter(({ p }) => p.bookmark)
     thumbs.replaceChildren(
+      ...(marked.length
+        ? [
+            h(
+              'div',
+              { class: 'bookmarks' },
+              h('strong', {}, 'Bookmarks'),
+              ...marked.map(({ p, i }) => h('button', { type: 'button', class: 'bookmark-go', onClick: () => canvas.scrollToPage(i) }, h('span', { class: 'menu-icon', html: icons.bookmark }), h('span', { class: 'bookmark-name' }, p.bookmark!), h('span', { class: 'muted' }, String(i + 1)))),
+            ),
+          ]
+        : []),
       ...pages.map((p, i) => {
         const frame = h('span', { class: `thumb-page ${p.orient === 'landscape' ? 'landscape' : ''}` })
         // Keep the preview already drawn while the fresh one is prepared.
         const kept = previous.get(p.id)
         if (kept) frame.append(kept)
-        const el = h('button', { type: 'button', class: `thumb ${i === current ? 'current' : ''}`, 'data-page': p.id, 'aria-label': `Go to page ${i + 1}`, onClick: () => canvas.scrollToPage(i) }, frame, h('span', { class: 'thumb-number' }, String(i + 1)))
+        const more = iconButton(icons.more, `Actions for page ${i + 1}`, () => thumbMenu(i, more), 'small')
+        const grip = h('span', { class: 'thumb-grip', title: 'Drag to move the page', 'aria-label': `Move page ${i + 1}`, html: icons.grip, onPointerdown: (e: PointerEvent) => startThumbDrag(e, i) })
+        const el = h(
+          'div',
+          { class: `thumb ${i === current ? 'current' : ''} ${p.bookmark ? 'bookmarked' : ''}`, 'data-page': p.id },
+          h('button', { type: 'button', class: 'thumb-go', 'aria-label': `Go to page ${i + 1}`, onClick: () => canvas.scrollToPage(i) }, frame),
+          p.bookmark ? h('span', { class: 'thumb-ribbon', title: `Bookmark: ${p.bookmark}`, html: icons.bookmark }) : null,
+          h('div', { class: 'thumb-row' }, grip, h('span', { class: 'thumb-number' }, String(i + 1)), more),
+        )
         staleThumbs.add(p.id)
         thumbWatcher.observe(el)
         return el
       }),
     )
+  }
+
+  function thumbMenu(index: number, anchor: HTMLElement): void {
+    const p = pages[index]
+    openMenu(anchor, [
+      { label: 'Add a page after', icon: icons.plus, action: () => addPage(index) },
+      { label: 'Duplicate', icon: icons.copy, action: () => void duplicatePage(index) },
+      { label: p.bookmark ? 'Remove the bookmark' : 'Add a bookmark', icon: icons.bookmark, action: () => void toggleBookmark(index) },
+      ...(p.pdf ? [] : [{ label: 'Change the background', icon: icons.pages, action: () => void chooseBackground(index) }]),
+      { label: 'Delete', icon: icons.trash, danger: true, action: () => void deletePage(index) },
+    ])
+  }
+
+  async function toggleBookmark(index: number): Promise<void> {
+    const page = pages[index]
+    let name: string | undefined
+    if (!page.bookmark) {
+      name = (await promptDialog('Add a bookmark', 'Name of the bookmark', `Page ${index + 1}`, 'Add')) ?? undefined
+      if (!name) return
+    }
+    pages[index] = { ...page, bookmark: name }
+    void enqueue(() => applyPageStructure(notebookId, { pageIds: pageIds(), putPages: [pages[index]] }))
+    structureChanged()
+  }
+
+  async function chooseBackground(index: number): Promise<void> {
+    const bg = await openDialog<Background>(`Background of page ${index + 1}`, (d) => [
+      h('div', { class: 'bg-tiles' }, ...BACKGROUNDS.map((b) => h('button', { type: 'button', class: `bg-tile ${b.id === pages[index].bg ? 'selected' : ''}`, onClick: () => d.close(b.id) }, h('span', { class: `paper bg-${b.id}` }), b.label))),
+      dialogButtons(button('Cancel', () => d.close(null))),
+    ])
+    if (bg) setBackground(index, bg)
+  }
+
+  /** Reordering by dragging the handle of a preview up or down the panel. */
+  function startThumbDrag(e: PointerEvent, from: number): void {
+    e.preventDefault()
+    const grip = e.currentTarget as HTMLElement
+    const items = [...thumbs.querySelectorAll<HTMLElement>('.thumb')]
+    const dragged = items[from]
+    grip.setPointerCapture(e.pointerId)
+    dragged.classList.add('dragging')
+    let to = from
+    const startY = e.clientY
+    const move = (ev: PointerEvent) => {
+      dragged.style.transform = `translateY(${ev.clientY - startY}px)`
+      // The page lands before the first preview whose middle is below the pointer.
+      to = items.length - 1
+      for (let i = 0; i < items.length; i++) {
+        if (i === from) continue
+        const r = items[i].getBoundingClientRect()
+        if (ev.clientY < r.top + r.height / 2) {
+          to = i > from ? i - 1 : i
+          break
+        }
+      }
+      items.forEach((el, i) => el.classList.toggle('drop-here', i !== from && (to < from ? i === to : i === to + 1)))
+      thumbs.classList.toggle('drop-at-end', to === items.length - 1 && from !== items.length - 1)
+      // Scroll the panel when dragging near its edges.
+      const box = thumbs.getBoundingClientRect()
+      if (ev.clientY < box.top + 40) thumbs.scrollTop -= 12
+      else if (ev.clientY > box.bottom - 40) thumbs.scrollTop += 12
+    }
+    const end = (ev: PointerEvent) => {
+      grip.removeEventListener('pointermove', move)
+      grip.removeEventListener('pointerup', end)
+      grip.removeEventListener('pointercancel', end)
+      thumbs.classList.remove('drop-at-end')
+      if (ev.type === 'pointerup' && to !== from) movePage(from, to - from)
+      else renderThumbs()
+    }
+    grip.addEventListener('pointermove', move)
+    grip.addEventListener('pointerup', end)
+    grip.addEventListener('pointercancel', end)
   }
 
   function markCurrentThumb(index: number): void {

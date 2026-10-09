@@ -25,6 +25,8 @@ interface Header {
   s: HeaderStroke[]
   /** 1 when the page is a page of an imported PDF. */
   pdf?: 1
+  /** Name of the page's bookmark. */
+  bm?: string
 }
 
 export interface PageData {
@@ -36,6 +38,7 @@ export interface PageData {
   w?: number
   h?: number
   pdfIndex?: number
+  bookmark?: string
 }
 
 const TOOL_CODE: Record<StrokeTool, HeaderStroke['t']> = { pen: 'p', pencil: 'g', highlighter: 'h', line: 'l', image: 'i' }
@@ -61,12 +64,13 @@ class Writer {
   }
 }
 
-export function encodePage(page: Pick<Page, 'bg' | 'orient' | 'pdf'>, strokes: Pick<Stroke, 'tool' | 'color' | 'width' | 'pts'>[]): Uint8Array {
+export function encodePage(page: Pick<Page, 'bg' | 'orient' | 'pdf' | 'bookmark'>, strokes: Pick<Stroke, 'tool' | 'color' | 'width' | 'pts'>[]): Uint8Array {
   let images = 0
   const header: Header = {
     bg: page.bg,
     o: page.orient,
     ...(page.pdf ? { pdf: 1 as const } : {}),
+    ...(page.bookmark ? { bm: page.bookmark } : {}),
     s: strokes.map((s) => ({
       t: TOOL_CODE[s.tool],
       c: s.color,
@@ -148,6 +152,7 @@ export function decodePage(bytes: Uint8Array): PageData | null {
       orient: header.o === 'landscape' ? 'landscape' : 'portrait',
       strokes,
       ...(header.pdf ? { pdf: true } : {}),
+      ...(typeof header.bm === 'string' && header.bm ? { bookmark: header.bm } : {}),
     }
   } catch {
     return null
@@ -169,6 +174,7 @@ export function dataToContent(notebookId: string, data: NotebookData): NotebookC
   const assets: Asset[] = data.asset ? [{ id: uid(), notebookId, bytes: data.asset }] : []
   for (const dp of data.pages) {
     const page: Page = { id: uid(), notebookId, bg: dp.bg, orient: dp.orient, rev: 0 }
+    if (dp.bookmark) page.bookmark = dp.bookmark
     if (dp.pdfIndex !== undefined && assets.length && dp.w && dp.h) Object.assign(page, { w: dp.w, h: dp.h, pdf: { asset: assets[0].id, index: dp.pdfIndex } } satisfies Partial<Page>)
     pages.push(page)
     dp.strokes.forEach(({ imageIndex: _i, ...s }, seq) => strokes.push({ ...s, id: uid(), pageId: page.id, seq }))

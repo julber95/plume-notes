@@ -32,7 +32,10 @@ recent browser on a computer.
   delete it like any selection; ink and highlighter go over it.
 - Page management: add, duplicate, move, delete, change the background.
 - Page previews: a panel on the left shows a thumbnail of every page; tap one
-  to go there.
+  to go there, drag its handle to reorder, or open its menu to add, duplicate,
+  delete or bookmark the page. Bookmarks are listed at the top of the panel
+  and written as real PDF bookmarks.
+- Library: search by name, favourites, recently opened notebooks.
 - Palm rejection; scroll and zoom with fingers; mouse on a computer.
 - Every stroke saved locally at once; works offline.
 - Automatic PDF export to OneDrive, with a status indicator.

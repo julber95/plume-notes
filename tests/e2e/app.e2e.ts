@@ -775,6 +775,31 @@ describe('Plume in the browser', () => {
     await pen(cdp, scribble(box.x + 200, box.y + 250, 300, 3))
     await expect.poll(() => inked(1), { timeout: 10_000 }).toBeGreaterThan(20)
 
+    // A bookmark on page 2, listed at the top of the panel.
+    await page.getByRole('button', { name: 'Actions for page 2' }).click()
+    await page.getByRole('menuitem', { name: 'Add a bookmark' }).click()
+    await page.getByLabel('Name of the bookmark').fill('Theorem 2')
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect.poll(() => page.locator('.bookmark-go .bookmark-name').allTextContents()).toEqual(['Theorem 2'])
+    await page.getByRole('button', { name: 'Go to page 4' }).click()
+    await expect.poll(() => page.locator('.page-pill').last().textContent()).toBe('4 / 4')
+    await page.locator('.bookmark-go').click()
+    await expect.poll(() => page.locator('.page-pill').last().textContent()).toBe('2 / 4')
+
+    // Drag the last page to the top with its handle: it becomes page 1, the bookmark follows its page to 3.
+    await page.locator('.thumb-grip').nth(3).scrollIntoViewIfNeeded()
+    const grip = (await page.locator('.thumb-grip').nth(3).boundingBox())!
+    const first = (await page.locator('.thumb').first().boundingBox())!
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(grip.x + grip.width / 2, first.y + 60, { steps: 8 })
+    await page.mouse.move(grip.x + grip.width / 2, first.y + 5, { steps: 4 })
+    await shot(page, '26-page-drag')
+    await page.mouse.up()
+    await expect.poll(() => page.locator('.bookmark-go .muted').textContent()).toBe('3')
+    await expect.poll(() => page.locator('.thumb.bookmarked .thumb-number').textContent()).toBe('3')
+    await expect.poll(() => inked(0), { timeout: 10_000 }).toBeGreaterThan(5) // the page that had ink on page 4
+
     // The panel stays open the next time, and can be closed.
     await page.reload()
     await page.locator('.thumb').first().waitFor()

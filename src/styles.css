@@ -942,15 +942,132 @@ button:focus-visible,
 }
 
 .thumb {
+  position: relative;
   display: grid;
   justify-items: center;
-  gap: 4px;
+  gap: 2px;
   flex: none;
-  padding: 5px;
-  border: 0;
+  padding: 5px 5px 0;
   border-radius: 8px;
+}
+
+.thumb-go {
+  display: block;
+  padding: 0;
+  border: 0;
   background: none;
   cursor: pointer;
+}
+
+.thumb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.thumb-row .icon-btn {
+  width: 30px;
+  height: 30px;
+}
+
+.thumb-grip {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: #9aa3b2;
+  cursor: grab;
+  touch-action: none;
+}
+
+.thumb-grip svg {
+  width: 18px;
+  height: 18px;
+}
+
+.thumb-ribbon {
+  position: absolute;
+  top: 3px;
+  right: 12px;
+  color: var(--accent);
+}
+
+.thumb-ribbon svg {
+  width: 18px;
+  height: 18px;
+  fill: var(--accent);
+}
+
+.thumb.dragging {
+  z-index: 2;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.thumb.dragging .thumb-page {
+  box-shadow: var(--shadow);
+}
+
+.thumb.drop-here::before,
+.thumbs.drop-at-end::after {
+  content: '';
+  display: block;
+  width: 96px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.thumb.drop-here::before {
+  position: absolute;
+  top: -7px;
+}
+
+.bookmarks {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.bookmarks strong {
+  padding: 0 4px 2px;
+  color: var(--muted);
+}
+
+.bookmark-go {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bookmark-go:hover {
+  background: rgba(30, 45, 80, 0.07);
+}
+
+.bookmark-go .menu-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: var(--accent);
+  color: var(--accent);
+}
+
+.bookmark-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thumb-page {

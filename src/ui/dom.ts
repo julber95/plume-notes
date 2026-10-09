@@ -35,6 +35,8 @@ export const icons = {
   importFile: svg('<path d="M12 4v10M8 10.5l4 4 4-4"/><path d="M5 15.5V18a2 2 0 002 2h10a2 2 0 002-2v-2.5"/>'),
   star: svg('<path d="M12 4.2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.6-4.8 2.6.9-5.4-3.9-3.8 5.4-.8z"/>'),
   search: svg('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.3-4.3"/>'),
+  bookmark: svg('<path d="M7 4.5h10a1 1 0 011 1V20l-6-4-6 4V5.5a1 1 0 011-1z"/>'),
+  grip: svg('<circle cx="9" cy="7" r="1.2" fill="currentColor"/><circle cx="15" cy="7" r="1.2" fill="currentColor"/><circle cx="9" cy="12" r="1.2" fill="currentColor"/><circle cx="15" cy="12" r="1.2" fill="currentColor"/><circle cx="9" cy="17" r="1.2" fill="currentColor"/><circle cx="15" cy="17" r="1.2" fill="currentColor"/>'),
   undo: svg('<path d="M8 8H15a5 5 0 010 10H9"/><path d="M11 5L8 8l3 3"/>'),
   redo: svg('<path d="M16 8H9a5 5 0 000 10h6"/><path d="M13 5l3 3-3 3"/>'),
   pages: svg('<rect x="7" y="3.5" width="12" height="15" rx="1.5"/><path d="M5 7v12.5a1 1 0 001 1h10"/>'),

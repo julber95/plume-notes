@@ -41,6 +41,8 @@ export interface Page {
   h?: number
   /** The page shows this page of an imported PDF, under what is written. */
   pdf?: { asset: string; index: number }
+  /** Name of the bookmark placed on the page, if any. */
+  bookmark?: string
 }
 
 /** An imported PDF, kept whole: its pages are shown and exported from it. */

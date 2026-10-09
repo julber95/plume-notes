@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { PDFArray, PDFDocument, StandardFonts, degrees } from 'pdf-lib'
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, StandardFonts, degrees } from 'pdf-lib'
 import { buildNotebookPdf, type PdfNotebookInput } from '../src/pdf/build'
 import { dataToContent } from '../src/pdf/codec'
 import { extractPlumeData } from '../src/pdf/extract'
@@ -103,3 +103,20 @@ describe('importing a PDF', () => {
     expect(await extractPlumeData(await doc.save())).toBeNull()
   })
 })
+
+describe('bookmarks', () => {
+  it('are written as real PDF bookmarks and come back with the pages', async () => {
+    const pages = ['', 'Theorem 2', '', 'To revise'].map((bookmark, i) => ({ id: `p${i}`, bg: 'grid' as const, orient: 'portrait' as const, rev: 0, strokes: [], ...(bookmark ? { bookmark } : {}) }))
+    const out = await buildNotebookPdf({ name: 'Course', bg: 'grid', orient: 'portrait', pages })
+    const doc = await PDFDocument.load(out)
+    const outline = doc.catalog.lookup(PDFName.of('Outlines'), PDFDict)
+    expect(outline.lookup(PDFName.of('Count'), PDFNumber).asNumber()).toBe(2)
+    const first = outline.lookup(PDFName.of('First'), PDFDict)
+    expect(first.lookup(PDFName.of('Title'), PDFHexString).decodeText()).toBe('Theorem 2')
+    expect(first.lookup(PDFName.of('Dest'), PDFArray).get(0)).toBe(doc.getPage(1).ref)
+    const back = (await extractPlumeData(out))!
+    expect(back.pages.map((p) => p.bookmark)).toEqual([undefined, 'Theorem 2', undefined, 'To revise'])
+    expect(dataToContent('nb', back).pages.map((p) => p.bookmark)).toEqual([undefined, 'Theorem 2', undefined, 'To revise'])
+  })
+})
+
