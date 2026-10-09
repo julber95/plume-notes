@@ -5,6 +5,7 @@
 // (hundredths of a point, pressure out of 255) delta-encoded then stored as
 // varints, which compresses very well.
 
+import { COVER_TEMPLATES, type Cover } from '../covers'
 import { uid, type Asset, type Background, type Orientation, type Page, type Stroke, type StrokeTool } from '../model'
 import type { NotebookContent } from '../db'
 
@@ -27,6 +28,8 @@ interface Header {
   pdf?: 1
   /** Name of the page's bookmark. */
   bm?: string
+  /** Cover design of the page. */
+  cv?: Cover
 }
 
 export interface PageData {
@@ -39,6 +42,7 @@ export interface PageData {
   h?: number
   pdfIndex?: number
   bookmark?: string
+  cover?: Cover
 }
 
 const TOOL_CODE: Record<StrokeTool, HeaderStroke['t']> = { pen: 'p', pencil: 'g', highlighter: 'h', line: 'l', image: 'i' }
@@ -64,13 +68,14 @@ class Writer {
   }
 }
 
-export function encodePage(page: Pick<Page, 'bg' | 'orient' | 'pdf' | 'bookmark'>, strokes: Pick<Stroke, 'tool' | 'color' | 'width' | 'pts'>[]): Uint8Array {
+export function encodePage(page: Pick<Page, 'bg' | 'orient' | 'pdf' | 'bookmark' | 'cover'>, strokes: Pick<Stroke, 'tool' | 'color' | 'width' | 'pts'>[]): Uint8Array {
   let images = 0
   const header: Header = {
     bg: page.bg,
     o: page.orient,
     ...(page.pdf ? { pdf: 1 as const } : {}),
     ...(page.bookmark ? { bm: page.bookmark } : {}),
+    ...(page.cover ? { cv: page.cover } : {}),
     s: strokes.map((s) => ({
       t: TOOL_CODE[s.tool],
       c: s.color,
@@ -153,6 +158,9 @@ export function decodePage(bytes: Uint8Array): PageData | null {
       strokes,
       ...(header.pdf ? { pdf: true } : {}),
       ...(typeof header.bm === 'string' && header.bm ? { bookmark: header.bm } : {}),
+      ...(header.cv && COVER_TEMPLATES.some((t) => t.id === header.cv!.template) && typeof header.cv.title === 'string' && /^#[0-9a-f]{6}$/i.test(header.cv.color)
+        ? { cover: { template: header.cv.template, title: header.cv.title, color: header.cv.color, ...(typeof header.cv.subtitle === 'string' ? { subtitle: header.cv.subtitle } : {}) } }
+        : {}),
     }
   } catch {
     return null
@@ -175,6 +183,7 @@ export function dataToContent(notebookId: string, data: NotebookData): NotebookC
   for (const dp of data.pages) {
     const page: Page = { id: uid(), notebookId, bg: dp.bg, orient: dp.orient, rev: 0 }
     if (dp.bookmark) page.bookmark = dp.bookmark
+    if (dp.cover) page.cover = dp.cover
     if (dp.pdfIndex !== undefined && assets.length && dp.w && dp.h) Object.assign(page, { w: dp.w, h: dp.h, pdf: { asset: assets[0].id, index: dp.pdfIndex } } satisfies Partial<Page>)
     pages.push(page)
     dp.strokes.forEach(({ imageIndex: _i, ...s }, seq) => strokes.push({ ...s, id: uid(), pageId: page.id, seq }))

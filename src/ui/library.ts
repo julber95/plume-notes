@@ -1,5 +1,6 @@
 // Library: folders and notebooks, as they appear in OneDrive.
 
+import { COVER_COLORS, COVER_TEMPLATES, drawCover, type Cover, type CoverTemplate } from '../covers'
 import { allNodes, kvGet, kvSet, updateNode } from '../db'
 import { createFolder, createNotebook, deleteNode, importNotebook, moveNode, pathTo, renameNode, subtree } from '../library'
 import { BACKGROUNDS, ROOT, isDirtyNotebook, pageSize, uid, type Background, type LibNode, type Orientation, type Page } from '../model'
@@ -30,44 +31,95 @@ const searching = { folder: '', query: '', focused: false }
 interface NotebookOptions {
   bg: Background
   orient: Orientation
+  /** Cover template used last time (none if absent), and its colour. */
+  coverTemplate?: CoverTemplate
+  coverColor?: string
 }
 
-function newNotebookDialog(last: NotebookOptions): Promise<({ name: string } & NotebookOptions) | null> {
-  return openDialog<{ name: string } & NotebookOptions>('New notebook', (d) => {
-    const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })
-    const name = h('input', { type: 'text', value: `Notes ${today}`, maxLength: 120, autocomplete: 'off' })
-    let bg = last.bg
-    let orient = last.orient
-    const tiles = h('div', { class: 'bg-tiles', role: 'radiogroup', 'aria-label': 'Page background' })
-    const orients = h('div', { class: 'segmented' })
-    const draw = () => {
-      tiles.replaceChildren(
-        ...BACKGROUNDS.map((b) =>
-          h('button', { type: 'button', role: 'radio', 'aria-checked': String(b.id === bg), class: `bg-tile ${b.id === bg ? 'selected' : ''}`, onClick: () => ((bg = b.id), draw()) }, h('span', { class: `paper bg-${b.id}` }), b.label),
-        ),
-      )
-      orients.replaceChildren(
-        ...(['portrait', 'landscape'] as const).map((o) =>
-          h('button', { type: 'button', class: o === orient ? 'selected' : '', onClick: () => ((orient = o), draw()) }, o === 'portrait' ? 'Portrait' : 'Landscape'),
-        ),
-      )
-    }
-    draw()
-    setTimeout(() => name.select())
-    return h(
-      'form',
-      {
-        onSubmit: (e: Event) => {
-          e.preventDefault()
-          if (name.value.trim()) d.close({ name: name.value, bg, orient })
+interface NewNotebook {
+  name: string
+  bg: Background
+  orient: Orientation
+  coverColor: string
+  cover?: Cover
+}
+
+/** Everything chosen when creating a notebook: its name, its cover and its pages. */
+function newNotebookDialog(last: NotebookOptions): Promise<NewNotebook | null> {
+  return openDialog<NewNotebook>(
+    'New notebook',
+    (d) => {
+      const today = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long' })
+      const name = h('input', { type: 'text', value: `Notes ${today}`, maxLength: 120, autocomplete: 'off' })
+      const subtitle = h('input', { type: 'text', maxLength: 80, autocomplete: 'off', placeholder: 'For example: Semester 1, Prof. Martin' })
+      let bg = last.bg
+      let orient = last.orient
+      let template: CoverTemplate | null = last.coverTemplate ?? null
+      let color = last.coverColor ?? COVER_COLORS[0]
+      const covers = h('div', { class: 'cover-tiles', role: 'radiogroup', 'aria-label': 'Cover' })
+      const colors = h('div', { class: 'swatches cover-colors' })
+      const coverOptions = h('div', { class: 'cover-options' }, h('div', { class: 'field' }, h('span', {}, 'Colour'), colors), h('label', { class: 'field' }, h('span', {}, 'Subtitle (optional)'), subtitle))
+      const tiles = h('div', { class: 'bg-tiles', role: 'radiogroup', 'aria-label': 'Page background' })
+      const orients = h('div', { class: 'segmented' })
+      const cover = (t: CoverTemplate): Cover => ({ template: t, title: name.value.trim() || 'Title', color, ...(subtitle.value.trim() ? { subtitle: subtitle.value.trim() } : {}) })
+      /** A small picture of the cover, as it will look with this name and colour. */
+      const preview = (t: CoverTemplate): HTMLCanvasElement => {
+        const { w, h: ph } = pageSize({ orient })
+        const width = orient === 'landscape' ? 92 : 66
+        const ratio = Math.min(window.devicePixelRatio || 1, 2)
+        const c = h('canvas', { class: 'cover-preview', width: Math.round(width * ratio), height: Math.round(((width * ph) / w) * ratio), style: `width:${width}px` })
+        const g = c.getContext('2d')!
+        g.fillStyle = '#ffffff'
+        g.fillRect(0, 0, c.width, c.height)
+        g.scale(c.width / w, c.width / w)
+        drawCover(g, cover(t), w, ph)
+        return c
+      }
+      const draw = () => {
+        covers.replaceChildren(
+          h('button', { type: 'button', role: 'radio', 'aria-checked': String(template === null), class: `cover-tile ${template === null ? 'selected' : ''}`, onClick: () => ((template = null), draw()) }, h('span', { class: `cover-preview none ${orient === 'landscape' ? 'landscape' : ''}` }, 'No cover'), 'None'),
+          ...COVER_TEMPLATES.map((t) =>
+            h('button', { type: 'button', role: 'radio', 'aria-checked': String(t.id === template), class: `cover-tile ${t.id === template ? 'selected' : ''}`, onClick: () => ((template = t.id), draw()) }, preview(t.id), t.label),
+          ),
+        )
+        coverOptions.hidden = template === null
+        colors.replaceChildren(
+          ...COVER_COLORS.map((c) => h('button', { type: 'button', class: `swatch ${c === color ? 'selected' : ''}`, style: `background:${c}`, 'aria-label': `Cover colour ${c}`, onClick: () => ((color = c), draw()) })),
+        )
+        tiles.replaceChildren(
+          ...BACKGROUNDS.map((b) =>
+            h('button', { type: 'button', role: 'radio', 'aria-checked': String(b.id === bg), class: `bg-tile ${b.id === bg ? 'selected' : ''}`, onClick: () => ((bg = b.id), draw()) }, h('span', { class: `paper bg-${b.id}` }), b.label),
+          ),
+        )
+        orients.replaceChildren(
+          ...(['portrait', 'landscape'] as const).map((o) =>
+            h('button', { type: 'button', class: o === orient ? 'selected' : '', onClick: () => ((orient = o), draw()) }, o === 'portrait' ? 'Portrait' : 'Landscape'),
+          ),
+        )
+      }
+      // The previews follow what is typed.
+      name.addEventListener('input', draw)
+      subtitle.addEventListener('input', draw)
+      draw()
+      setTimeout(() => name.select())
+      return h(
+        'form',
+        {
+          onSubmit: (e: Event) => {
+            e.preventDefault()
+            if (name.value.trim()) d.close({ name: name.value, bg, orient, coverColor: color, ...(template ? { cover: cover(template) } : {}) })
+          },
         },
-      },
-      h('label', { class: 'field' }, h('span', {}, 'Name'), name),
-      h('div', { class: 'field' }, h('span', {}, 'Page background'), tiles),
-      h('div', { class: 'field' }, h('span', {}, 'A4 format'), orients),
-      dialogButtons(button('Cancel', () => d.close(null)), h('button', { class: 'btn primary', type: 'submit' }, 'Create')),
-    )
-  })
+        h('label', { class: 'field' }, h('span', {}, 'Name'), name),
+        h('div', { class: 'field' }, h('span', {}, 'Cover page'), covers),
+        coverOptions,
+        h('div', { class: 'field' }, h('span', {}, 'Pages'), tiles),
+        h('div', { class: 'field' }, h('span', {}, 'A4 format'), orients),
+        dialogButtons(button('Cancel', () => d.close(null)), h('button', { class: 'btn primary', type: 'submit' }, 'Create')),
+      )
+    },
+    'wide',
+  )
 }
 
 function moveDialog(nodes: LibNode[], node: LibNode): Promise<string | null> {
@@ -293,8 +345,8 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
               const last = (await kvGet<NotebookOptions>('lastNotebook')) ?? { bg: 'grid', orient: 'portrait' }
               const r = await newNotebookDialog(last)
               if (!r) return
-              await kvSet('lastNotebook', { bg: r.bg, orient: r.orient })
-              const node = await createNotebook(folderId, r.name, r.bg, r.orient)
+              await kvSet('lastNotebook', { bg: r.bg, orient: r.orient, coverTemplate: r.cover?.template, coverColor: r.coverColor } satisfies NotebookOptions)
+              const node = await createNotebook(folderId, r.name, r.bg, r.orient, r.cover)
               deps.changed()
               deps.open(node)
             },

@@ -2,6 +2,7 @@
 // storage; the sync engine then applies them to OneDrive.
 
 import { allNodes, clearNotebookContent, createNotebook as dbCreateNotebook, mutateNodes, purgeNodes, putNodes, type NotebookContent } from './db'
+import type { Cover } from './covers'
 import { ROOT, sanitizeName, siblingNames, uid, uniqueName, type Background, type LibNode, type Orientation, type Page } from './model'
 
 export async function createFolder(parentId: string, rawName: string): Promise<LibNode> {
@@ -19,11 +20,13 @@ export async function createFolder(parentId: string, rawName: string): Promise<L
   return node
 }
 
-export async function createNotebook(parentId: string, rawName: string, bg: Background, orient: Orientation): Promise<LibNode> {
+/** Creates a notebook with a first page, preceded by a cover page if one is given. */
+export async function createNotebook(parentId: string, rawName: string, bg: Background, orient: Orientation, cover?: Cover): Promise<LibNode> {
   const nodes = await allNodes()
   const now = Date.now()
   const id = uid()
   const page: Page = { id: uid(), notebookId: id, bg, orient, rev: 0 }
+  const pages: Page[] = cover ? [{ id: uid(), notebookId: id, bg: 'blank', orient, rev: 0, cover }, page] : [page]
   const node: LibNode = {
     id,
     kind: 'notebook',
@@ -31,13 +34,13 @@ export async function createNotebook(parentId: string, rawName: string, bg: Back
     parentId,
     createdAt: now,
     updatedAt: now,
-    pageIds: [page.id],
+    pageIds: pages.map((p) => p.id),
     bg,
     orient,
     rev: 0,
     uploadedRev: -1,
   }
-  await dbCreateNotebook(node, [page])
+  await dbCreateNotebook(node, pages)
   return node
 }
 

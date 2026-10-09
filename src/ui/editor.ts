@@ -2,7 +2,7 @@
 
 import { applyPageStructure, applyStrokeChange, getAsset, getNode, getPages, getStrokes, kvGet, kvSet } from '../db'
 import { buildAxes } from '../axes'
-import { BACKGROUNDS, pageSize, uid, type Background, type LibNode, type Page, type Stroke } from '../model'
+import { BACKGROUNDS, pageSize, uid, type Background, type LibNode, type Orientation, type Page, type Stroke } from '../model'
 import { PdfView } from './pdfview'
 import { preparePicture } from './pictures'
 import { InkCanvas, type SelectionKind, type StrokeChange, type ToolKind, type ToolState } from './canvas'
@@ -492,13 +492,58 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     if (!thumbs.hidden) renderThumbs()
   }
 
-  function addPage(after: number): void {
+  /**
+   * Adds a page. Without `format`, the quick way: the same background and
+   * direction as the page before it.
+   */
+  function addPage(after: number, format?: { bg: Background; orient: Orientation }): void {
     const ref = pages[after] ?? pages[pages.length - 1]
-    // After a page of an imported PDF, a plain page for notes, in the same direction.
-    const page: Page = { id: uid(), notebookId, bg: (ref?.pdf ? undefined : ref?.bg) ?? node!.bg ?? 'blank', orient: ref?.orient ?? node!.orient ?? 'portrait', rev: 0 }
+    // After a cover or a page of an imported PDF, a plain page of the notebook's kind.
+    const plain = ref?.pdf || ref?.cover ? undefined : ref?.bg
+    const page: Page = { id: uid(), notebookId, bg: format?.bg ?? plain ?? node!.bg ?? 'blank', orient: format?.orient ?? ref?.orient ?? node!.orient ?? 'portrait', rev: 0 }
     pages.splice(after + 1, 0, page)
     void enqueue(() => applyPageStructure(notebookId, { pageIds: pageIds(), putPages: [page] }))
     structureChanged(after + 1)
+  }
+
+  /** Lets the user choose a page's background and direction. */
+  function formatDialog(title: string, current: { bg: Background; orient: Orientation }, okLabel: string): Promise<{ bg: Background; orient: Orientation } | null> {
+    return openDialog<{ bg: Background; orient: Orientation }>(title, (d) => {
+      let { bg, orient } = current
+      const tiles = h('div', { class: 'bg-tiles', role: 'radiogroup', 'aria-label': 'Page background' })
+      const orients = h('div', { class: 'segmented' })
+      const draw = () => {
+        tiles.replaceChildren(
+          ...BACKGROUNDS.map((b) =>
+            h('button', { type: 'button', role: 'radio', 'aria-checked': String(b.id === bg), class: `bg-tile ${b.id === bg ? 'selected' : ''}`, onClick: () => ((bg = b.id), draw()) }, h('span', { class: `paper bg-${b.id}` }), b.label),
+          ),
+        )
+        orients.replaceChildren(
+          ...(['portrait', 'landscape'] as const).map((o) => h('button', { type: 'button', class: o === orient ? 'selected' : '', onClick: () => ((orient = o), draw()) }, o === 'portrait' ? 'Portrait' : 'Landscape')),
+        )
+      }
+      draw()
+      return [
+        h('div', { class: 'field' }, h('span', {}, 'Background'), tiles),
+        h('div', { class: 'field' }, h('span', {}, 'A4 format'), orients),
+        dialogButtons(button('Cancel', () => d.close(null)), button(okLabel, () => d.close({ bg, orient }), 'primary')),
+      ]
+    })
+  }
+
+  async function addPageWithFormat(after: number): Promise<void> {
+    const ref = pages[after]
+    const format = await formatDialog('Add a page', { bg: (ref?.pdf || ref?.cover ? undefined : ref?.bg) ?? node!.bg ?? 'blank', orient: ref?.orient ?? node!.orient ?? 'portrait' }, 'Add')
+    if (format) addPage(after, format)
+  }
+
+  async function changeFormat(index: number): Promise<void> {
+    const page = pages[index]
+    const format = await formatDialog(`Format of page ${index + 1}`, { bg: page.bg, orient: page.orient }, 'Apply')
+    if (!format || (format.bg === page.bg && format.orient === page.orient)) return
+    pages[index] = { ...page, ...format }
+    void enqueue(() => applyPageStructure(notebookId, { pageIds: pageIds(), putPages: [pages[index]] }))
+    structureChanged()
   }
 
   async function duplicatePage(index: number): Promise<void> {
@@ -615,9 +660,10 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     const p = pages[index]
     openMenu(anchor, [
       { label: 'Add a page after', icon: icons.plus, action: () => addPage(index) },
+      { label: 'Add a page of another format…', icon: icons.pages, action: () => void addPageWithFormat(index) },
       { label: 'Duplicate', icon: icons.copy, action: () => void duplicatePage(index) },
       { label: p.bookmark ? 'Remove the bookmark' : 'Add a bookmark', icon: icons.bookmark, action: () => void toggleBookmark(index) },
-      ...(p.pdf ? [] : [{ label: 'Change the background', icon: icons.pages, action: () => void chooseBackground(index) }]),
+      ...(p.pdf || p.cover ? [] : [{ label: 'Change the format…', icon: icons.pages, action: () => void changeFormat(index) }]),
       { label: 'Delete', icon: icons.trash, danger: true, action: () => void deletePage(index) },
     ])
   }
@@ -632,14 +678,6 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     pages[index] = { ...page, bookmark: name }
     void enqueue(() => applyPageStructure(notebookId, { pageIds: pageIds(), putPages: [pages[index]] }))
     structureChanged()
-  }
-
-  async function chooseBackground(index: number): Promise<void> {
-    const bg = await openDialog<Background>(`Background of page ${index + 1}`, (d) => [
-      h('div', { class: 'bg-tiles' }, ...BACKGROUNDS.map((b) => h('button', { type: 'button', class: `bg-tile ${b.id === pages[index].bg ? 'selected' : ''}`, onClick: () => d.close(b.id) }, h('span', { class: `paper bg-${b.id}` }), b.label))),
-      dialogButtons(button('Cancel', () => d.close(null))),
-    ])
-    if (bg) setBackground(index, bg)
   }
 
   /** Reordering by dragging the handle of a preview up or down the panel. */
@@ -732,6 +770,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     panel.replaceChildren(
       h('div', { class: 'panel-head' }, h('strong', {}, `Pages (${pages.length})`), iconButton(icons.close, 'Close', () => togglePanel(), 'small')),
       h('button', { class: 'btn wide', type: 'button', onClick: () => addPage(canvas.currentPageIndex()) }, `Add a page after page ${current + 1}`),
+      h('button', { class: 'btn wide', type: 'button', onClick: () => void addPageWithFormat(canvas.currentPageIndex()) }, 'Add a page of another format…'),
       h(
         'ol',
         { class: 'page-list' },
@@ -742,7 +781,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
             h('button', { class: 'page-go', type: 'button', onClick: () => (canvas.scrollToPage(i), renderPanel()) }, `Page ${i + 1}`),
             h(
               'select',
-              { 'aria-label': `Background of page ${i + 1}`, disabled: !!p.pdf, title: p.pdf ? 'Page of an imported PDF' : undefined, onChange: (e: Event) => setBackground(i, (e.target as HTMLSelectElement).value as Background) },
+              { 'aria-label': `Background of page ${i + 1}`, disabled: !!(p.pdf || p.cover), title: p.pdf ? 'Page of an imported PDF' : p.cover ? 'Cover page' : undefined, onChange: (e: Event) => setBackground(i, (e.target as HTMLSelectElement).value as Background) },
               ...BACKGROUNDS.map((b) => h('option', { value: b.id, selected: b.id === p.bg }, b.label)),
             ),
             iconButton(icons.up, 'Move up', () => movePage(i, -1), 'small'),

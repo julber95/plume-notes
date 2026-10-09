@@ -1,3 +1,5 @@
+import type { Cover } from './covers'
+
 // Shared types and constants. All coordinates are in PDF points (1/72 inch),
 // with the origin at the top-left corner of the page.
 
@@ -43,6 +45,8 @@ export interface Page {
   pdf?: { asset: string; index: number }
   /** Name of the bookmark placed on the page, if any. */
   bookmark?: string
+  /** The page is a cover: this design is drawn in place of the ruling. */
+  cover?: Cover
 }
 
 /** An imported PDF, kept whole: its pages are shown and exported from it. */

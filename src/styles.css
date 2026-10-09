@@ -756,6 +756,74 @@ button:focus-visible,
   font-size: 14px;
 }
 
+.dialog.wide {
+  width: min(640px, calc(100vw - 24px));
+}
+
+.cover-tiles {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 2px 6px;
+}
+
+.cover-tile {
+  display: grid;
+  justify-items: center;
+  align-content: end;
+  gap: 5px;
+  flex: none;
+  padding: 7px 6px 6px;
+  border: 1.5px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.cover-tile.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.cover-preview {
+  display: block;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(20, 30, 50, 0.16);
+}
+
+.cover-preview.none {
+  display: grid;
+  place-items: center;
+  width: 66px;
+  aspect-ratio: 595.28 / 841.89;
+  background: #fff;
+  color: #98a1b0;
+  font-size: 11px;
+  text-align: center;
+}
+
+.cover-preview.none.landscape {
+  width: 92px;
+  aspect-ratio: 841.89 / 595.28;
+}
+
+.cover-options {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 18px;
+  align-items: start;
+}
+
+.cover-colors {
+  display: flex;
+  gap: 8px;
+}
+
+.pages-panel .btn.wide + .btn.wide {
+  margin-top: 6px;
+}
+
 .bg-tiles {
   display: grid;
   grid-template-columns: repeat(5, 1fr);

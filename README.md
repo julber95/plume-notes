@@ -32,7 +32,10 @@ recent browser on a computer.
   duplicate or delete it like any selection; ink and highlighter go over it.
 - Axes for graphs: graduated axes with an optional grid, inserted as strokes.
 - Light and dark appearance, with optional dark pages while writing.
-- Page management: add, duplicate, move, delete, change the background.
+- New notebook dialog: name, optional cover page (six templates, six
+  colours, subtitle), page background and orientation.
+- Page management: add (same format as the page before, or another
+  background and orientation), duplicate, move, delete, change the format.
 - Page previews: a panel on the left shows a thumbnail of every page; tap one
   to go there, drag its handle to reorder, or open its menu to add, duplicate,
   delete or bookmark the page. Bookmarks are listed at the top of the panel
@@ -63,6 +66,7 @@ npm run build      # production build in dist/
 | --- | --- |
 | `src/model.ts`, `src/db.ts` | Types and local storage (IndexedDB) |
 | `src/geometry.ts`, `src/backgrounds.ts` | Stroke shapes and backgrounds, shared by screen and PDF |
+| `src/covers.ts`, `src/axes.ts` | Cover page templates; graduated axes |
 | `src/shapes.ts` | Shape recognition (line, rectangle, ellipse, curve…) |
 | `src/pdf/` | Building and reading PDFs (in a worker) |
 | `src/ui/pdfview.ts` | Display of imported PDF pages (PDF.js) |

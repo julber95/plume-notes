@@ -5,6 +5,7 @@
 // the stroke in progress is recomputed on each frame.
 
 import { backgroundSpec, type BgSpec } from '../backgrounds'
+import { drawCover } from '../covers'
 import { centerline, eraseFromStroke, isScribble, penOutline, pencilOutline, highlightRgb, scribbleTargets, strokeBBox, strokeHit, type BBox } from '../geometry'
 import { GRAIN_TILE, grainSpecks, pencilAlpha, pencilLevel } from '../grain'
 import { pageSize, uid, type Page, type Stroke } from '../model'
@@ -371,7 +372,7 @@ export class InkCanvas {
         cache: prev?.cache,
         pdf: prev && prev.page.pdf?.asset === page.pdf?.asset && prev.page.pdf?.index === page.pdf?.index ? prev.pdf : undefined,
         cacheScale: prev?.cacheScale ?? 0,
-        cacheValid: !!prev?.cacheValid && prev.page.bg === page.bg && prev.w === w,
+        cacheValid: !!prev?.cacheValid && prev.page.bg === page.bg && prev.w === w && prev.page.cover === page.cover,
       }
       y += h + GAP
       maxW = Math.max(maxW, w)
@@ -624,6 +625,8 @@ export class InkCanvas {
     ctx.clip()
     if (pv.page.pdf) {
       this.drawPdf(ctx, pv, pixelScale)
+    } else if (pv.page.cover) {
+      drawCover(ctx, pv.page.cover, pv.w, pv.h)
     } else {
       // In a small preview the ruling is toned down, or it would grey out the page.
       if (this.boost) ctx.globalAlpha = 0.4

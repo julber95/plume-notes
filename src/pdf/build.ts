@@ -2,16 +2,23 @@
 // carrying its editable data (PieceInfo dictionary, the mechanism the PDF
 // format provides for an application's private data).
 
-import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString, type PDFImage, type PDFPage, type PDFRef } from 'pdf-lib'
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString, StandardFonts, type PDFFont, type PDFImage, type PDFPage, type PDFRef } from 'pdf-lib'
 import { strToU8, zlibSync } from 'fflate'
 import { backgroundSpec } from '../backgrounds'
+import { coverShapes } from '../covers'
 import { centerline, hexToRgb, highlightRgb, penOutline, pencilOutline, simplify, smoothClosed } from '../geometry'
 import { GRAIN_TILE, PENCIL_LEVELS, grainSpecks, pencilAlpha, pencilLevel } from '../grain'
 import { pageSize, type Background, type Orientation, type Page, type Stroke } from '../model'
 import { FORMAT_VERSION, encodePage } from './codec'
 import { pageFrame } from './pagebox'
 
-export interface PdfPageInput extends Pick<Page, 'id' | 'bg' | 'orient' | 'rev' | 'w' | 'h' | 'pdf' | 'bookmark'> {
+/** The two fonts cover pages are written in. */
+export interface CoverFonts {
+  regular: PDFFont
+  bold: PDFFont
+}
+
+export interface PdfPageInput extends Pick<Page, 'id' | 'bg' | 'orient' | 'rev' | 'w' | 'h' | 'pdf' | 'bookmark' | 'cover'> {
   strokes: Stroke[]
   /** Pictures of the page, when `strokes` was not loaded because the page is cached. */
   imageStrokes?: Stroke[]
@@ -71,9 +78,42 @@ const pictures = (page: PdfPageInput) => page.strokes.filter((s) => s.tool === '
  * Resource names start with "Plm" so they never clash with those of an
  * imported PDF.
  */
-function pageContent(page: PdfPageInput): string {
+function coverContent(page: PdfPageInput, fonts?: CoverFonts): string {
+  const { w, h } = pageSize(page)
   let out = ''
-  if (page.bg !== 'blank' && !page.pdf) out += '/PlmBg Do\n'
+  for (const s of coverShapes(page.cover!, w, h)) {
+    if (s.kind === 'rect') {
+      out += `${rgb(s.color)} rg ${num(s.x)} ${num(s.y)} ${num(s.w)} ${num(s.h)} re f\n`
+    } else if (s.kind === 'text') {
+      if (!fonts) continue
+      const font = s.bold ? fonts.bold : fonts.regular
+      // A character the PDF font cannot write is replaced, not fatal.
+      const safe = [...s.text]
+        .map((ch) => {
+          try {
+            font.encodeText(ch)
+            return ch
+          } catch {
+            return '?'
+          }
+        })
+        .join('')
+      const x = s.align === 'center' ? s.x - font.widthOfTextAtSize(safe, s.size) / 2 : s.x
+      // The page's coordinates run downwards: the text is turned back upright.
+      out += `BT /PlmF${s.bold ? 2 : 1} ${num(s.size)} Tf ${rgb(s.color)} rg 1 0 0 -1 ${num(x)} ${num(s.y)} Tm ${font.encodeText(safe).toString()} Tj ET\n`
+    } else {
+      let path = `${num(s.pts[0])} ${num(s.pts[1])} m\n`
+      for (let i = 2; i < s.pts.length; i += 2) path += `${num(s.pts[i])} ${num(s.pts[i + 1])} l\n`
+      out += s.kind === 'polygon' ? `${rgb(s.color)} rg\n${path}f\n` : `${rgb(s.color)} RG ${num(s.width)} w 1 J 1 j\n${path}S\n`
+    }
+  }
+  return out
+}
+
+function pageContent(page: PdfPageInput, fonts?: CoverFonts): string {
+  let out = ''
+  if (page.cover) out += coverContent(page, fonts)
+  else if (page.bg !== 'blank' && !page.pdf) out += '/PlmBg Do\n'
   // Pictures first: ink and highlighter go over them.
   pictures(page).forEach((s, i) => {
     const x = Math.min(s.pts[0], s.pts[3])
@@ -137,10 +177,10 @@ function backgroundContent(bg: Background, w: number, h: number): string {
   return out
 }
 
-export function renderPage(page: PdfPageInput): PageCacheEntry {
+export function renderPage(page: PdfPageInput, fonts?: CoverFonts): PageCacheEntry {
   return {
     rev: page.rev,
-    content: zlibSync(strToU8(pageContent(page)), { level: 6 }),
+    content: zlibSync(strToU8(pageContent(page, fonts)), { level: 6 }),
     data: zlibSync(encodePage(page, page.strokes.filter((s) => s.tool !== 'image' || pictures(page).includes(s))), { level: 6 }),
     images: pictures(page).map((s) => s.id),
   }
@@ -202,11 +242,11 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
   }
 
   /** Gives the page resources of its own (a PDF may share them between pages) and returns its dictionaries. */
-  const ownResources = (page: PDFPage): Record<'XObject' | 'ExtGState' | 'Pattern' | 'ColorSpace', PDFDict> => {
+  const ownResources = (page: PDFPage): Record<'XObject' | 'ExtGState' | 'Pattern' | 'ColorSpace' | 'Font', PDFDict> => {
     const shared = page.node.Resources()
     const own = shared ? shared.clone(ctx) : ctx.obj({})
     const out = {} as Record<string, PDFDict>
-    for (const key of ['XObject', 'ExtGState', 'Pattern', 'ColorSpace']) {
+    for (const key of ['XObject', 'ExtGState', 'Pattern', 'ColorSpace', 'Font']) {
       const name = PDFName.of(key)
       const dict = own.lookupMaybe(name, PDFDict)
       out[key] = dict ? dict.clone(ctx) : ctx.obj({})
@@ -217,10 +257,11 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
   }
 
   const bookmarks: { title: string; page: PDFRef }[] = []
+  const fonts: CoverFonts | undefined = nb.pages.some((p) => p.cover) ? { regular: await doc.embedFont(StandardFonts.Helvetica), bold: await doc.embedFont(StandardFonts.HelveticaBold) } : undefined
   for (const p of nb.pages) {
     let entry = cache.get(p.id)
     if (!entry || entry.rev !== p.rev) {
-      entry = renderPage(p)
+      entry = renderPage(p, fonts)
       cache.set(p.id, entry)
     }
 
@@ -256,7 +297,11 @@ export async function buildNotebookPdf(nb: PdfNotebookInput, cache: PageCache = 
     })
     res.Pattern.set(PDFName.of('PlmGrain'), grainPattern)
     res.ColorSpace.set(PDFName.of('PlmCsG'), ctx.obj(['Pattern', 'DeviceRGB']))
-    if (p.bg !== 'blank' && !copy) {
+    if (p.cover && fonts) {
+      res.Font.set(PDFName.of('PlmF1'), fonts.regular.ref)
+      res.Font.set(PDFName.of('PlmF2'), fonts.bold.ref)
+    }
+    if (p.bg !== 'blank' && !copy && !p.cover) {
       const key = `${p.bg}/${w}/${h}`
       let ref = backgrounds.get(key)
       if (!ref) {

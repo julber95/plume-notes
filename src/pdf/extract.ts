@@ -62,7 +62,7 @@ export async function extractPlumeData(bytes: Uint8Array): Promise<NotebookData 
             if (item instanceof PDFRef && mine.has(item.toString())) contents.remove(i)
           }
         }
-        for (const kind of ['XObject', 'ExtGState', 'Pattern', 'ColorSpace']) {
+        for (const kind of ['XObject', 'ExtGState', 'Pattern', 'ColorSpace', 'Font']) {
           const dict = resources?.lookupMaybe(PDFName.of(kind), PDFDict)
           for (const key of dict?.keys() ?? []) if (key.decodeText().startsWith('Plm')) dict!.delete(key)
         }

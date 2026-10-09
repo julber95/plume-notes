@@ -1083,5 +1083,59 @@ describe('Plume in the browser', () => {
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
   })
+
+  it('creates a notebook with a cover, and adds pages of another format', async () => {
+    const tab = await device()
+    const { page } = tab
+    await page.locator('.sync-chip').click()
+    await page.getByRole('button', { name: 'Sign in to OneDrive' }).click()
+    await page.waitForFunction(() => document.querySelector('.sync-chip')?.getAttribute('data-state') === 'ok')
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByLabel('Name', { exact: true }).fill('Quantum mechanics')
+    await page.getByRole('radio', { name: 'Orbits' }).click()
+    await page.getByLabel('Subtitle (optional)').fill('Semester 1 — Prof. Martin')
+    await page.getByRole('button', { name: 'Cover colour #0e7490' }).click()
+    await page.getByRole('radio', { name: 'Dotted' }).click()
+    await shot(page, '34-new-notebook')
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('canvas.ink').waitFor()
+    await expect.poll(() => page.locator('.page-pill').last().textContent()).toBe('1 / 2') // the cover, then a first page
+    await settle(page, 400)
+    await shot(page, '35-cover')
+
+    // Quick add keeps the format of the page before; the other way lets one choose.
+    await page.getByRole('button', { name: 'Page previews' }).click()
+    await page.getByRole('button', { name: 'Actions for page 2' }).click()
+    await page.getByRole('menuitem', { name: 'Add a page after' }).click()
+    await expect.poll(() => page.locator('.thumb').count()).toBe(3)
+    await page.getByRole('button', { name: 'Actions for page 3' }).click()
+    await page.getByRole('menuitem', { name: 'Add a page of another format…' }).click()
+    await page.getByRole('dialog').getByRole('radio', { name: 'Grid' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Landscape' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Add', exact: true }).click()
+    await expect.poll(() => page.locator('.thumb').count()).toBe(4)
+    // And an existing page can change format.
+    await page.getByRole('button', { name: 'Actions for page 2' }).click()
+    await page.getByRole('menuitem', { name: 'Change the format…' }).click()
+    await page.getByRole('dialog').getByRole('radio', { name: 'Seyès' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Apply' }).click()
+    await expect.poll(() => page.locator('.thumb canvas').count(), { timeout: 10_000 }).toBe(4)
+    await shot(page, '36-page-formats')
+
+    await page.getByRole('button', { name: 'Back to library' }).click()
+    await expect.poll(async () => (await extractPlumeData(drive.find('Plume/Quantum mechanics.pdf')?.content ?? new Uint8Array()))?.pages.length, { timeout: 20_000 }).toBe(4)
+    const exported = drive.find('Plume/Quantum mechanics.pdf')!.content!
+    writeFileSync(`${OUT}cover.pdf`, exported)
+    const data = (await extractPlumeData(exported))!
+    expect(data.pages.map((p) => [p.cover?.template ?? null, p.bg, p.orient])).toEqual([
+      ['orbits', 'blank', 'portrait'],
+      [null, 'seyes', 'portrait'],
+      [null, 'dots', 'portrait'],
+      [null, 'grid', 'landscape'],
+    ])
+    expect(data.pages[0].cover).toEqual({ template: 'orbits', title: 'Quantum mechanics', subtitle: 'Semester 1 — Prof. Martin', color: '#0e7490' })
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
+  })
 })
 
