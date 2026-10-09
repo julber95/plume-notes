@@ -39,6 +39,8 @@ export const icons = {
   grip: svg('<circle cx="9" cy="7" r="1.2" fill="currentColor"/><circle cx="15" cy="7" r="1.2" fill="currentColor"/><circle cx="9" cy="12" r="1.2" fill="currentColor"/><circle cx="15" cy="12" r="1.2" fill="currentColor"/><circle cx="9" cy="17" r="1.2" fill="currentColor"/><circle cx="15" cy="17" r="1.2" fill="currentColor"/>'),
   insert: svg('<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8.5v7M8.5 12h7"/>'),
   axes: svg('<path d="M6 19V5M4 7l2-2 2 2"/><path d="M5 18h14M17 16l2 2-2 2"/><path d="M8 15c3-1 4-6 8-8"/>'),
+  rotate: svg('<path d="M19 12a7 7 0 11-2.3-5.2"/><path d="M19.5 4.5v4h-4"/>'),
+  crop: svg('<path d="M7 3v14h14"/><path d="M3 7h14v14"/>'),
   undo: svg('<path d="M8 8H15a5 5 0 010 10H9"/><path d="M11 5L8 8l3 3"/>'),
   redo: svg('<path d="M16 8H9a5 5 0 000 10h6"/><path d="M13 5l3 3-3 3"/>'),
   pages: svg('<rect x="7" y="3.5" width="12" height="15" rx="1.5"/><path d="M5 7v12.5a1 1 0 001 1h10"/>'),

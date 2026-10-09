@@ -30,6 +30,9 @@ export interface StrokeChange {
   removed: Stroke[]
 }
 
+/** What is selected: several things, a single picture, or a picture being cropped. */
+export type SelectionKind = 'group' | 'picture' | 'crop'
+
 export interface InkHost {
   loadStrokes(pageId: string): Promise<Stroke[]>
   /** The user added or erased strokes. */
@@ -40,7 +43,7 @@ export interface InkHost {
    * Where the selection is on screen (CSS pixels, relative to the canvas), or
    * null when nothing is selected or the selection is being dragged.
    */
-  onSelection(rect: { x: number; y: number; w: number; h: number } | null): void
+  onSelection(rect: { x: number; y: number; w: number; h: number } | null, kind: SelectionKind): void
   /** A tap with the selection tool, at this screen position. */
   onLassoTap(x: number, y: number, canPaste: boolean): void
   /** A picture of this page has finished decoding (its previews can be redrawn). */
@@ -81,6 +84,7 @@ type Action =
   | { type: 'pan'; pointerId: number; lastX: number; lastY: number }
   | { type: 'tapAdd'; pointerId: number }
   | { type: 'lasso'; pointerId: number; pv: PageView; pts: number[]; startX: number; startY: number }
+  | { type: 'crop'; pointerId: number; startX: number; startY: number }
   | { type: 'transform'; pointerId: number; mode: 'move' | 'scale'; startX: number; startY: number; reach: number; moved: boolean }
 
 const GAP = 14
@@ -266,6 +270,8 @@ export class InkCanvas {
   private hidden: Set<string> | null = null
   private pasteTarget: { pv: PageView; x: number; y: number } | null = null
   private reported = ''
+  /** Picture being cropped, and the part of it to keep (page coordinates). */
+  private crop: { id: string; bounds: BBox; rect: BBox } | null = null
   /** Colour around the pages (follows the light or dark appearance). */
   private backdrop = backdrop()
   private onTheme = (): void => {
@@ -957,6 +963,28 @@ export class InkCanvas {
         }
         ctx.restore()
       }
+      const c = this.crop
+      if (c) {
+        // Cropping: what will be cut off is veiled, the part kept is framed.
+        const [bx0, by0, bx1, by1] = c.bounds
+        const [rx0, ry0, rx1, ry1] = c.rect
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)'
+        ctx.fillRect(bx0, by0, bx1 - bx0, ry0 - by0)
+        ctx.fillRect(bx0, ry1, bx1 - bx0, by1 - ry1)
+        ctx.fillRect(bx0, ry0, rx0 - bx0, ry1 - ry0)
+        ctx.fillRect(rx1, ry0, bx1 - rx1, ry1 - ry0)
+        ctx.strokeStyle = SELECT_COLOR
+        ctx.lineWidth = 1.6 / this.zoom
+        ctx.strokeRect(rx0, ry0, rx1 - rx0, ry1 - ry0)
+        const f = c.bounds
+        const area = { x: this.tx + (sel.pv.x + f[0]) * this.zoom, y: this.ty + (sel.pv.y + f[1]) * this.zoom, w: (f[2] - f[0]) * this.zoom, h: (f[3] - f[1]) * this.zoom }
+        const cropKey = `crop,${Math.round(area.x)},${Math.round(area.y)}`
+        if (cropKey !== this.reported) {
+          this.reported = cropKey
+          this.host.onSelection(area, 'crop')
+        }
+        return
+      }
       // The loop drawn by hand stays around the selection and follows it.
       ctx.beginPath()
       ctx.moveTo(mx(sel.loop[0]), my(sel.loop[1]))
@@ -993,12 +1021,17 @@ export class InkCanvas {
     const key = rect ? `${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.w)},${Math.round(rect.h)}` : ''
     if (key !== this.reported) {
       this.reported = key
-      this.host.onSelection(rect)
+      const picked = this.selected()
+      this.host.onSelection(rect, picked.length === 1 && picked[0].tool === 'image' ? 'picture' : 'group')
     }
   }
 
   private lassoDown(e: PointerEvent, w: { x: number; y: number }): void {
     const sel = this.selection
+    if (sel && this.crop) {
+      this.action = { type: 'crop', pointerId: e.pointerId, startX: w.x - sel.pv.x, startY: w.y - sel.pv.y }
+      return
+    }
     if (sel) {
       const x = w.x - sel.pv.x
       const y = w.y - sel.pv.y
@@ -1029,7 +1062,19 @@ export class InkCanvas {
   }
 
   private finishLasso(a: Extract<Action, { type: 'lasso' }>, e: PointerEvent): void {
-    if (Math.hypot(e.clientX - a.startX, e.clientY - a.startY) < 8 && a.pts.length < 16) {
+    // A tap: the pen hardly moved at all. (A loop also ends where it began, so
+    // the distance covered is what counts, not where the pen was lifted.)
+    let x0 = Infinity
+    let y0 = Infinity
+    let x1 = -Infinity
+    let y1 = -Infinity
+    for (let i = 0; i < a.pts.length; i += 2) {
+      x0 = Math.min(x0, a.pts[i])
+      x1 = Math.max(x1, a.pts[i])
+      y0 = Math.min(y0, a.pts[i + 1])
+      y1 = Math.max(y1, a.pts[i + 1])
+    }
+    if (Math.hypot(x1 - x0, y1 - y0) * this.zoom < 8) {
       const w = this.world(e)
       // A tap on a picture selects it.
       const px = w.x - a.pv.x
@@ -1077,7 +1122,7 @@ export class InkCanvas {
   }
 
   /** Replaces each selected stroke by its modified copy, as one undoable change. */
-  private replaceSelected(change: (s: RStroke) => Stroke, loop?: number[]): void {
+  private replaceSelected(change: (s: RStroke) => Stroke, loop?: number[] | null): void {
     const sel = this.selection
     if (!sel?.pv.strokes) return
     const olds: Stroke[] = []
@@ -1092,7 +1137,8 @@ export class InkCanvas {
       return next
     })
     if (!news.length) return
-    this.select(sel.pv, news, loop ?? sel.loop)
+    // `null` asks for a fresh outline around the new extent.
+    this.select(sel.pv, news, loop === null ? undefined : (loop ?? sel.loop))
     this.markDirty(sel.pv, dirty)
     this.host.onChange({ added: news.map(plain), removed: olds })
   }
@@ -1118,12 +1164,94 @@ export class InkCanvas {
     const sel = this.selection
     if (!sel) return
     this.selection = null
+    this.crop = null
     if (this.hidden) {
       this.hidden = null
       this.xform = null
       this.markDirty(sel.pv, sel.box)
     }
     this.schedule()
+  }
+
+  /** Decodes a picture, redraws it on a sheet of the given size, and returns it as a JPEG. */
+  private async redrawPicture(image: NonNullable<Stroke['image']>, width: number, height: number, draw: (g: CanvasRenderingContext2D, source: ImageBitmap) => void): Promise<NonNullable<Stroke['image']>> {
+    const source = bitmaps.get(image.data) ?? (await createImageBitmap(new Blob([image.data as BlobPart], { type: image.mime })))
+    const sheet = document.createElement('canvas')
+    sheet.width = Math.max(1, Math.round(width))
+    sheet.height = Math.max(1, Math.round(height))
+    const g = sheet.getContext('2d')!
+    g.fillStyle = '#ffffff'
+    g.fillRect(0, 0, sheet.width, sheet.height)
+    draw(g, source)
+    const blob = await new Promise<Blob | null>((done) => sheet.toBlob(done, 'image/jpeg', 0.9))
+    if (!blob) throw new Error('encoding failed')
+    return { mime: 'image/jpeg', data: new Uint8Array(await blob.arrayBuffer()) }
+  }
+
+  /** Turns the selection a quarter turn clockwise, around its centre. */
+  async rotateSelection(): Promise<void> {
+    const sel = this.selection
+    if (!sel || this.crop) return
+    const cx = (sel.box[0] + sel.box[2]) / 2
+    const cy = (sel.box[1] + sel.box[3]) / 2
+    // Pictures are turned themselves (their pixels), ahead of the change.
+    const turned = new Map<string, NonNullable<Stroke['image']>>()
+    for (const s of this.selected()) {
+      if (s.tool !== 'image' || !s.image) continue
+      const source = bitmaps.get(s.image.data) ?? (await createImageBitmap(new Blob([s.image.data as BlobPart], { type: s.image.mime })))
+      turned.set(
+        s.id,
+        await this.redrawPicture(s.image, source.height, source.width, (g, src) => {
+          g.translate(src.height, 0)
+          g.rotate(Math.PI / 2)
+          g.drawImage(src, 0, 0)
+        }),
+      )
+    }
+    if (this.selection !== sel) return
+    const turn = (v: ArrayLike<number>, step: number): number[] => {
+      const out = Array.from(v)
+      for (let i = 0; i + 1 < out.length; i += step) {
+        const x = out[i]
+        out[i] = cx - (out[i + 1] - cy)
+        out[i + 1] = cy + (x - cx)
+      }
+      return out
+    }
+    this.replaceSelected((s) => ({ ...plain(s), pts: Float32Array.from(turn(s.pts, 3)), ...(turned.has(s.id) ? { image: turned.get(s.id) } : {}) }), turn(sel.loop, 2))
+  }
+
+  /** Starts cropping the selected picture: the pen then marks the part to keep. */
+  startCrop(): void {
+    const [picture] = this.selected()
+    if (this.selected().length !== 1 || picture.tool !== 'image') return
+    const b: BBox = [Math.min(picture.pts[0], picture.pts[3]), Math.min(picture.pts[1], picture.pts[4]), Math.max(picture.pts[0], picture.pts[3]), Math.max(picture.pts[1], picture.pts[4])]
+    const inset = Math.min(b[2] - b[0], b[3] - b[1]) * 0.1
+    this.crop = { id: picture.id, bounds: b, rect: [b[0] + inset, b[1] + inset, b[2] - inset, b[3] - inset] }
+    this.schedule()
+  }
+
+  cancelCrop(): void {
+    this.crop = null
+    this.schedule()
+  }
+
+  /** Keeps only the marked part of the picture. */
+  async applyCrop(): Promise<void> {
+    const sel = this.selection
+    const c = this.crop
+    const [picture] = this.selected()
+    if (!sel || !c || !picture?.image || picture.id !== c.id) return
+    const [bx0, by0, bx1, by1] = c.bounds
+    const [rx0, ry0, rx1, ry1] = c.rect
+    if (rx1 - rx0 < 4 || ry1 - ry0 < 4) return this.cancelCrop()
+    const source = bitmaps.get(picture.image.data) ?? (await createImageBitmap(new Blob([picture.image.data as BlobPart], { type: picture.image.mime })))
+    const kx = source.width / (bx1 - bx0)
+    const ky = source.height / (by1 - by0)
+    const image = await this.redrawPicture(picture.image, (rx1 - rx0) * kx, (ry1 - ry0) * ky, (g, src) => g.drawImage(src, -(rx0 - bx0) * kx, -(ry0 - by0) * ky))
+    if (this.selection !== sel || this.crop !== c) return
+    this.crop = null
+    this.replaceSelected((s) => ({ ...plain(s), pts: Float32Array.from([rx0, ry0, 0, rx1, ry1, 0]), image }), null)
   }
 
   hasSelection(): boolean {
@@ -1503,6 +1631,22 @@ export class InkCanvas {
       const y = w.y - a.pv.y
       const n = a.pts.length
       if (Math.hypot(x - a.pts[n - 2], y - a.pts[n - 1]) > 1.5 / this.zoom) a.pts.push(x, y)
+      this.schedule()
+      return
+    }
+    if (a.type === 'crop') {
+      const sel = this.selection
+      const c = this.crop
+      if (!sel || !c) return
+      const w = this.world(e)
+      // The part to keep runs from where the pen went down to where it is, within the picture.
+      const clampX = (v: number) => Math.min(c.bounds[2], Math.max(c.bounds[0], v))
+      const clampY = (v: number) => Math.min(c.bounds[3], Math.max(c.bounds[1], v))
+      const x0 = clampX(a.startX)
+      const y0 = clampY(a.startY)
+      const x1 = clampX(w.x - sel.pv.x)
+      const y1 = clampY(w.y - sel.pv.y)
+      c.rect = [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)]
       this.schedule()
       return
     }

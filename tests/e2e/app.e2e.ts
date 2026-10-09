@@ -1002,5 +1002,86 @@ describe('Plume in the browser', () => {
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
   })
+
+  it('rotates a selection and crops a picture', async () => {
+    const tab = await device()
+    const { page, cdp } = tab
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByRole('radio', { name: 'Blank' }).click()
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('canvas.ink').waitFor()
+    await settle(page)
+    const elements = () =>
+      page.evaluate(
+        () =>
+          new Promise<{ tool: string; bytes: number; box: number[] }[]>((resolve) => {
+            const open = indexedDB.open('plume')
+            open.onsuccess = () => {
+              const req = open.result.transaction('strokes').objectStore('strokes').getAll()
+              req.onsuccess = () => {
+                open.result.close()
+                resolve(
+                  (req.result as { tool: string; seq: number; pts: Float32Array; image?: { data: Uint8Array } }[])
+                    .sort((a, b) => a.seq - b.seq)
+                    .map((s) => {
+                      const xs = Array.from(s.pts).filter((_, i) => i % 3 === 0)
+                      const ys = Array.from(s.pts).filter((_, i) => i % 3 === 1)
+                      return { tool: s.tool, bytes: s.image?.data.length ?? 0, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] }
+                    }),
+                )
+              }
+            }
+          }),
+      )
+    const zoom = (1280 - 36) / 595.28
+    const sx = (x: number) => 640 - (595.28 / 2) * zoom + x * zoom
+    const sy = (y: number) => 48 + 14 * zoom + y * zoom
+    const size = (b: number[]) => [b[2] - b[0], b[3] - b[1]]
+
+    // A picture, wider than tall: a quarter turn makes it taller than wide, around the same centre.
+    await page.locator('.editor-body > input[type=file]').setInputFiles(`${OUT}test-picture.jpg`)
+    await page.locator('.sel-bar').waitFor()
+    const [before] = await elements()
+    await page.getByRole('button', { name: 'Rotate a quarter turn' }).click()
+    await expect.poll(async () => size((await elements())[0].box)[1] > size((await elements())[0].box)[0]).toBe(true)
+    const [turned] = await elements()
+    expect(size(turned.box)[0]).toBeCloseTo(size(before.box)[1], 0)
+    expect(size(turned.box)[1]).toBeCloseTo(size(before.box)[0], 0)
+    expect((turned.box[0] + turned.box[2]) / 2).toBeCloseTo((before.box[0] + before.box[2]) / 2, 0)
+    await shot(page, '31-picture-rotated')
+
+    // Crop: drag over a part in the middle; only that part is kept, where it was.
+    await page.getByRole('button', { name: 'Crop', exact: true }).click()
+    await page.getByText('Drag over the part to keep').waitFor()
+    const mid = sx((turned.box[0] + turned.box[2]) / 2)
+    await pen(cdp, [[mid - 60, 300], [mid, 400], [mid + 60, 500]])
+    await shot(page, '32-picture-cropping')
+    await page.getByRole('button', { name: 'Crop', exact: true }).click()
+    await expect.poll(async () => size((await elements())[0].box)[0]).toBeLessThan(size(turned.box)[0] * 0.7)
+    const [cropped] = await elements()
+    expect(size(cropped.box)[0]).toBeCloseTo(120 / zoom, 0)
+    expect(size(cropped.box)[1]).toBeCloseTo(200 / zoom, 0)
+    expect(sx(cropped.box[0])).toBeCloseTo(mid - 60, 0)
+    expect(sy(cropped.box[1])).toBeCloseTo(300, 0)
+    expect(cropped.bytes).toBeLessThan(turned.bytes)
+    await shot(page, '33-picture-cropped')
+
+    // Ink turns too: a horizontal stroke becomes vertical.
+    await page.getByRole('button', { name: 'Pen', exact: true }).click()
+    await pen(cdp, [[700, 600], [800, 601], [900, 600]])
+    await page.getByRole('button', { name: 'Select', exact: true }).click()
+    await pen(cdp, [[680, 580], [920, 580], [920, 620], [680, 620], [680, 582]])
+    await page.locator('.sel-bar').waitFor()
+    await page.getByRole('button', { name: 'Rotate a quarter turn' }).click()
+    await expect.poll(async () => { const s = (await elements()).find((e) => e.tool === 'pen')!; return size(s.box)[1] > size(s.box)[0] * 5 }).toBe(true)
+
+    // Undo goes back through each step.
+    for (let i = 0; i < 2; i++) await page.getByRole('button', { name: 'Undo' }).click()
+    await settle(page)
+    await page.getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(async () => size((await elements())[0].box)[0]).toBeCloseTo(size(turned.box)[0], 0)
+    expect(tab.errors).toEqual([])
+    await tab.ctx.close()
+  })
 })
 

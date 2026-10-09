@@ -1211,6 +1211,13 @@ canvas.ink {
   background: var(--line);
 }
 
+.bar-hint {
+  padding: 0 8px;
+  font-size: 13.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .sel-bar .btn {
   min-height: 38px;
   border: 0;

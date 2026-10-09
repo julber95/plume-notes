@@ -24,12 +24,14 @@ recent browser on a computer.
   (can be switched off in the pen settings). While still holding, move the pen
   to enlarge or shrink a closed shape.
 - Selection: circle strokes freehand with the lasso, then move, resize,
-  recolour, duplicate, copy, cut, paste or delete them.
+  rotate, recolour, duplicate, copy, cut, paste or delete them.
 - Import: a PDF becomes a notebook whose pages you write on (the original
   text stays selectable in the exported PDF); a picture becomes a one-page
   notebook. PDFs dropped into the OneDrive folder open the same way.
-- Pictures: insert an image on the page, then move, resize, duplicate or
-  delete it like any selection; ink and highlighter go over it.
+- Pictures: insert an image on the page, then move, resize, rotate, crop,
+  duplicate or delete it like any selection; ink and highlighter go over it.
+- Axes for graphs: graduated axes with an optional grid, inserted as strokes.
+- Light and dark appearance, with optional dark pages while writing.
 - Page management: add, duplicate, move, delete, change the background.
 - Page previews: a panel on the left shows a thumbnail of every page; tap one
   to go there, drag its handle to reorder, or open its menu to add, duplicate,

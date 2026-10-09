@@ -5,7 +5,7 @@ import { buildAxes } from '../axes'
 import { BACKGROUNDS, pageSize, uid, type Background, type LibNode, type Page, type Stroke } from '../model'
 import { PdfView } from './pdfview'
 import { preparePicture } from './pictures'
-import { InkCanvas, type StrokeChange, type ToolKind, type ToolState } from './canvas'
+import { InkCanvas, type SelectionKind, type StrokeChange, type ToolKind, type ToolState } from './canvas'
 import { button, closePopovers, confirmDialog, dialogButtons, h, iconButton, icons, openDialog, openMenu, promptDialog, showPopover, toast } from './dom'
 
 export interface EditorHandle {
@@ -224,7 +224,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
       onPictureReady: (pageId) => refreshThumb(pageId),
       renderPdf: async (page, scale) => (page.pdf ? pdfView.render(page.pdf.asset, page.pdf.index, pageSize(page).w, scale) : null),
       onAddPage: () => addPage(pages.length - 1),
-      onSelection: (rect) => showSelectionBar(rect),
+      onSelection: (rect, kind) => showSelectionBar(rect, kind),
       onLassoTap: (x, y, canPaste) => showPasteBar(x, y, canPaste),
     },
     tool,
@@ -388,24 +388,39 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     selBar.style.top = `${Math.max(6, top)}px`
   }
 
-  function showSelectionBar(rect: { x: number; y: number; w: number; h: number } | null): void {
+  function showSelectionBar(rect: { x: number; y: number; w: number; h: number } | null, kind: SelectionKind): void {
     if (!rect) {
       selBar.hidden = true
       return
     }
-    if (selBar.dataset.mode !== 'selection') {
-      selBar.dataset.mode = 'selection'
-      selBar.replaceChildren(
-        ...[PEN_COLORS[0], PEN_COLORS[2], PEN_COLORS[6], PEN_COLORS[4]].map((c) =>
-          h('button', { type: 'button', class: 'swatch', style: `background:${c}`, title: 'Change colour', 'aria-label': `Recolour ${c}`, onClick: () => canvas.recolorSelection(c) }),
-        ),
-        h('input', { type: 'color', class: 'swatch custom', title: 'Other colour', 'aria-label': 'Recolour, other colour', onChange: (e: Event) => canvas.recolorSelection((e.target as HTMLInputElement).value) }),
-        h('span', { class: 'sep' }),
-        iconButton(icons.duplicate, 'Duplicate', () => canvas.duplicateSelection(), 'small'),
-        iconButton(icons.copy, 'Copy', () => (canvas.copySelection(), toast('Copied. Tap the page with the selection tool to paste.')), 'small'),
-        iconButton(icons.cut, 'Cut', () => canvas.cutSelection(), 'small'),
-        iconButton(icons.trash, 'Delete', () => canvas.deleteSelection(), 'small danger'),
-      )
+    if (selBar.dataset.mode !== kind) {
+      selBar.dataset.mode = kind
+      if (kind === 'crop') {
+        selBar.replaceChildren(
+          h('span', { class: 'bar-hint' }, 'Drag over the part to keep'),
+          button('Cancel', () => canvas.cancelCrop()),
+          button('Crop', () => void canvas.applyCrop().catch(() => toast('This picture could not be cropped.')), 'primary'),
+        )
+      } else {
+        selBar.replaceChildren(
+          // Colours apply to ink; a picture alone has none to change.
+          ...(kind === 'picture'
+            ? []
+            : [
+                ...[PEN_COLORS[0], PEN_COLORS[2], PEN_COLORS[6], PEN_COLORS[4]].map((c) =>
+                  h('button', { type: 'button', class: 'swatch', style: `background:${c}`, title: 'Change colour', 'aria-label': `Recolour ${c}`, onClick: () => canvas.recolorSelection(c) }),
+                ),
+                h('input', { type: 'color', class: 'swatch custom', title: 'Other colour', 'aria-label': 'Recolour, other colour', onChange: (e: Event) => canvas.recolorSelection((e.target as HTMLInputElement).value) }),
+                h('span', { class: 'sep' }),
+              ]),
+          iconButton(icons.rotate, 'Rotate a quarter turn', () => void canvas.rotateSelection().catch(() => toast('This could not be rotated.')), 'small'),
+          ...(kind === 'picture' ? [iconButton(icons.crop, 'Crop', () => canvas.startCrop(), 'small')] : []),
+          iconButton(icons.duplicate, 'Duplicate', () => canvas.duplicateSelection(), 'small'),
+          iconButton(icons.copy, 'Copy', () => (canvas.copySelection(), toast('Copied. Tap the page with the selection tool to paste.')), 'small'),
+          iconButton(icons.cut, 'Cut', () => canvas.cutSelection(), 'small'),
+          iconButton(icons.trash, 'Delete', () => canvas.deleteSelection(), 'small danger'),
+        )
+      }
     }
     placeBar(rect.x, rect.y, rect.w, rect.h)
   }
