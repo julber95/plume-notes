@@ -47,7 +47,7 @@ async function device(width = 1280, height = 800): Promise<{ ctx: BrowserContext
   const graph = async (route: import('playwright').Route) => {
     const req = route.request()
     try {
-      const res = await drive.fetch(req.url(), { method: req.method(), headers: req.headers(), body: (req.headers()['content-type'] ?? '').includes('json') ? (req.postData() ?? undefined) : (req.postDataBuffer() ?? undefined) })
+      const res = await drive.fetch(req.url(), { method: req.method(), headers: req.headers(), body: req.method() !== 'PUT' && (req.headers()['content-type'] ?? '').includes('json') ? (req.postData() ?? undefined) : (req.postDataBuffer() ?? undefined) })
       await route.fulfill({ status: res.status, headers: { 'Content-Type': res.headers.get('Content-Type') ?? 'application/octet-stream', 'Access-Control-Allow-Origin': '*' }, body: Buffer.from(await res.arrayBuffer()) })
     } catch {
       await route.abort('internetdisconnected')
@@ -1131,24 +1131,11 @@ describe('Plume in the browser', () => {
     await shot(page, '36-page-formats')
 
     await page.getByRole('button', { name: 'Back to library' }).click()
-    // In the library, the card of the notebook shows its first page: here, the cover in its colour.
+    // In the library, the card of the notebook shows its logo, not its first page.
     const card = page.locator('.listing .grid').last().locator('.card.notebook', { hasText: 'Quantum mechanics' })
-    await card.locator('.cover img').waitFor({ timeout: 15_000 })
-    const tealPixels = () =>
-      card.locator('.cover img').evaluate(async (img: HTMLImageElement) => {
-        await img.decode()
-        const c = document.createElement('canvas')
-        c.width = img.naturalWidth
-        c.height = img.naturalHeight
-        const g = c.getContext('2d')!
-        g.drawImage(img, 0, 0)
-        const d = g.getImageData(0, 0, c.width, c.height).data
-        let n = 0
-        for (let k = 0; k < d.length; k += 4) if (d[k] < 90 && d[k + 1] > 90 && d[k + 1] < 170 && d[k + 2] > 110) n++
-        return n
-      })
-    await expect.poll(tealPixels, { timeout: 10_000 }).toBeGreaterThan(60)
-    await shot(page, '37-library-first-pages')
+    await card.locator('svg.notebook-art').waitFor()
+    expect(await card.locator('img').count()).toBe(0)
+    await shot(page, '37-library-logos')
     await expect.poll(async () => (await extractPlumeData(drive.find('Plume/Quantum mechanics.pdf')?.content ?? new Uint8Array()))?.pages.length, { timeout: 20_000 }).toBe(4)
     const exported = drive.find('Plume/Quantum mechanics.pdf')!.content!
     writeFileSync(`${OUT}cover.pdf`, exported)
@@ -1163,5 +1150,62 @@ describe('Plume in the browser', () => {
     expect(tab.errors).toEqual([])
     await tab.ctx.close()
   })
-})
 
+  it('gives folders a colour and notebooks a logo, which follow on another device', async () => {
+    const signIn = async (page: Page) => {
+      await page.locator('.sync-chip').click()
+      await page.getByRole('button', { name: 'Sign in to OneDrive' }).click()
+      await page.waitForFunction(() => document.querySelector('.sync-chip')?.getAttribute('data-state') === 'ok')
+    }
+    const art = (page: Page, kind: 'folder' | 'notebook', name: string) => page.locator(`.listing .card.${kind}`, { hasText: name }).last().locator('svg.lib-icon')
+    const tab = await device()
+    const { page } = tab
+    await signIn(page)
+    // The colour is chosen when the folder is created, as in OneDrive.
+    await page.getByRole('button', { name: 'Folder', exact: true }).click()
+    await page.getByLabel('Folder name').fill('Chemistry lab')
+    await page.getByRole('radio', { name: 'Dark green', exact: true }).click()
+    await page.getByRole('radio', { name: 'Chemistry', exact: true }).click()
+    await shot(page, '38-new-folder')
+    await page.getByRole('button', { name: 'Create' }).click()
+    await expect.poll(() => art(page, 'folder', 'Chemistry lab').innerHTML()).toContain('#0b6a0b')
+    // A folder is yellow unless another colour was chosen; the tree shows the same colours.
+    expect(await art(page, 'folder', 'Maths').innerHTML()).toContain('#ffc83d')
+    expect(await page.locator('.tree-row', { hasText: 'Chemistry lab' }).locator('svg.lib-icon').innerHTML()).toContain('#0b6a0b')
+    // And it can be changed afterwards, from the menu of the folder.
+    await page.locator('.listing .card.folder', { hasText: 'Chemistry lab' }).getByRole('button', { name: /Actions for/ }).click()
+    await page.getByRole('menuitem', { name: 'Folder colour' }).click()
+    await page.getByRole('radio', { name: 'Light blue', exact: true }).click()
+    await page.getByRole('button', { name: 'Save' }).click()
+    await expect.poll(() => art(page, 'folder', 'Chemistry lab').innerHTML()).toContain('#4f9ef5')
+
+    await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+    await page.getByLabel('Name', { exact: true }).fill('Titration')
+    await page.getByRole('button', { name: 'Create' }).click()
+    await page.locator('canvas.ink').waitFor()
+    await page.getByRole('button', { name: 'Back to library' }).click()
+    // A notebook is violet, with the feather, until its logo is chosen.
+    await expect.poll(() => art(page, 'notebook', 'Titration').innerHTML()).toContain('#4f0599')
+    await page.locator('.listing .card.notebook', { hasText: 'Titration' }).last().getByRole('button', { name: /Actions for/ }).click()
+    await page.getByRole('menuitem', { name: 'Notebook logo' }).click()
+    await page.getByRole('radio', { name: 'Bright violet', exact: true }).click()
+    await page.getByRole('radio', { name: 'Chemistry', exact: true }).click()
+    await shot(page, '39-notebook-logo')
+    await page.getByRole('button', { name: 'Save' }).click()
+    await expect.poll(() => art(page, 'notebook', 'Titration').innerHTML()).toContain('#8c40ef')
+    // The choices are written to one small file of the Plume folder.
+    await expect.poll(() => new TextDecoder().decode(drive.find('Plume/plume-library.json')?.content), { timeout: 10_000 }).toContain('#8c40ef')
+    await page.waitForFunction(() => document.querySelector('.sync-chip')?.getAttribute('data-state') === 'ok')
+    await shot(page, '40-library-colours')
+
+    const other = await device()
+    await signIn(other.page)
+    await expect.poll(() => art(other.page, 'folder', 'Chemistry lab').innerHTML(), { timeout: 15_000 }).toContain('#4f9ef5')
+    await expect.poll(() => art(other.page, 'notebook', 'Titration').innerHTML(), { timeout: 15_000 }).toContain('#8c40ef')
+    // A PDF that was imported keeps a logo of its own.
+    await expect.poll(() => other.page.locator('.listing .card.notebook', { hasText: 'handout' }).last().locator('svg.notebook-art.pdf').count(), { timeout: 20_000 }).toBe(1)
+    expect([...tab.errors, ...other.errors]).toEqual([])
+    await tab.ctx.close()
+    await other.ctx.close()
+  })
+})

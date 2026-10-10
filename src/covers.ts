@@ -9,7 +9,7 @@ export interface Cover {
   color: string
 }
 
-export type CoverTemplate = 'band' | 'minimal' | 'blueprint' | 'waves' | 'orbits' | 'lattice'
+export type CoverTemplate = 'band' | 'minimal' | 'blueprint' | 'waves' | 'orbits' | 'lattice' | 'aurora' | 'glass' | 'horizon' | 'pulse'
 
 export const COVER_TEMPLATES: { id: CoverTemplate; label: string }[] = [
   { id: 'band', label: 'Band' },
@@ -18,9 +18,14 @@ export const COVER_TEMPLATES: { id: CoverTemplate; label: string }[] = [
   { id: 'waves', label: 'Waves' },
   { id: 'orbits', label: 'Orbits' },
   { id: 'lattice', label: 'Lattice' },
+  { id: 'aurora', label: 'Aurora' },
+  { id: 'glass', label: 'Glass' },
+  { id: 'horizon', label: 'Horizon' },
+  { id: 'pulse', label: 'Pulse' },
 ]
 
-export const COVER_COLORS = ['#2b4c8c', '#0e7490', '#15803d', '#b45309', '#9d174d', '#3f3f46']
+/** The violets of Plume first, then the colours of the older covers. */
+export const COVER_COLORS = ['#4f0599', '#8c40ef', '#2b4c8c', '#0e7490', '#15803d', '#b45309', '#9d174d', '#3f3f46']
 
 export type CoverShape =
   | { kind: 'rect'; x: number; y: number; w: number; h: number; color: string }
@@ -30,6 +35,8 @@ export type CoverShape =
 
 const INK = '#1c2430'
 const SOFT = '#667085'
+/** The night the dark covers are set in: the dark background of the application. */
+const NIGHT = '#131217'
 
 /** `color` lightened towards `base` (t = 0 gives `color`, 1 gives `base`). */
 function mix(color: string, base: string, t: number): string {
@@ -77,6 +84,8 @@ function ellipse(cx: number, cy: number, rx: number, ry: number, tilt: number): 
   return out
 }
 
+const disc = (cx: number, cy: number, r: number) => ellipse(cx, cy, r, r, 0)
+
 /** Shapes of a cover for a page `w` by `h` points, in drawing order. */
 export function coverShapes(cover: Cover, w: number, h: number): CoverShape[] {
   const c = cover.color
@@ -96,7 +105,111 @@ export function coverShapes(cover: Cover, w: number, h: number): CoverShape[] {
     return y
   }
 
+  /** A ground shaded from `from` (top) to `to` (bottom), in thin bands: the PDF has no gradients here. */
+  const shade = (from: string, to: string, y0 = 0, y1 = h) => {
+    const bands = 48
+    const step = (y1 - y0) / bands
+    for (let i = 0; i < bands; i++) out.push({ kind: 'rect', x: 0, y: y0 + i * step, w, h: step + 0.6, color: mix(from, to, i / (bands - 1)) })
+  }
+  /** A light fading out around a point, from `core` at its centre to `edge`. */
+  const halo = (cx: number, cy: number, r: number, core: string, edge: string, rings = 44) => {
+    for (let i = 0; i < rings; i++) {
+      const t = i / (rings - 1)
+      out.push({ kind: 'polygon', pts: disc(cx, cy, r * (1 - t * 0.94)), color: mix(edge, core, t * t) })
+    }
+  }
+  const deep = mix(c, NIGHT, 0.86)
+  const glow = mix(c, '#ffffff', 0.38)
+  const pale = mix(c, '#ffffff', 0.72)
+
   switch (cover.template) {
+    case 'aurora': {
+      // A night sky lit from a corner, crossed by the barbs of a feather.
+      shade(deep, mix(c, NIGHT, 0.6))
+      halo(w * 0.86, h * 0.14, Math.min(w, h) * 0.62, mix(c, '#ffffff', 0.12), mix(c, NIGHT, 0.82))
+      for (let k = 0; k < 16; k++) {
+        const pts: number[] = []
+        const spread = k / 15
+        for (let i = 0; i <= 60; i++) {
+          const t = i / 60
+          // Each barb leaves the shaft (bottom left) and bends towards the light.
+          const x = w * (-0.05 + t * 1.1)
+          const y = h * (0.98 - spread * 0.5) - Math.sin(t * Math.PI * 0.5) * h * (0.16 + spread * 0.34) - t * t * h * 0.08 * spread
+          pts.push(x, y)
+        }
+        out.push({ kind: 'line', pts, color: mix(c, k % 4 ? glow : '#ffffff', 0.25 + spread * 0.55), width: k % 4 ? 0.6 : 1.1 })
+      }
+      out.push({ kind: 'rect', x: margin, y: h * 0.2 - 58, w: 44, h: 4, color: glow })
+      heading(margin, h * 0.2, w - 2 * margin, '#ffffff', pale)
+      break
+    }
+    case 'glass': {
+      // Panes of frosted glass laid over each other, on a pale ground.
+      shade('#ffffff', mix(c, '#ffffff', 0.86))
+      halo(w * 0.2, h * 0.92, Math.min(w, h) * 0.6, mix(c, '#ffffff', 0.62), mix(c, '#ffffff', 0.9), 16)
+      const pane = (x: number, y: number, pw: number, ph: number, tint: number) => {
+        const cut = Math.min(pw, ph) * 0.16
+        const pts = [x + cut, y, x + pw, y, x + pw, y + ph - cut, x + pw - cut, y + ph, x, y + ph, x, y + cut, x + cut, y]
+        out.push({ kind: 'polygon', pts, color: mix(c, '#ffffff', tint) })
+        out.push({ kind: 'line', pts, color: mix(c, '#ffffff', tint - 0.26), width: 0.9 })
+        out.push({ kind: 'line', pts: [x + cut + 6, y + 6, x + pw - 6, y + 6], color: '#ffffff', width: 1.2 })
+      }
+      pane(w * 0.5, h * 0.08, w * 0.42, h * 0.3, 0.74)
+      pane(w * 0.3, h * 0.2, w * 0.4, h * 0.26, 0.56)
+      pane(w * 0.58, h * 0.3, w * 0.3, h * 0.2, 0.36)
+      const ly = h * 0.6
+      const lw = w - 2 * margin
+      out.push({ kind: 'rect', x: margin, y: ly, w: lw, h: 150, color: '#ffffff' })
+      out.push({ kind: 'line', pts: [margin, ly, margin + lw, ly, margin + lw, ly + 150, margin, ly + 150, margin, ly], color: mix(c, '#ffffff', 0.55), width: 0.9 })
+      out.push({ kind: 'rect', x: margin, y: ly, w: 5, h: 150, color: c })
+      heading(margin + 26, ly + 66, lw - 52, INK, SOFT, 'left', 30)
+      break
+    }
+    case 'horizon': {
+      // A plain drawn in perspective under a rising light.
+      const hy = h * 0.6
+      shade(deep, mix(c, NIGHT, 0.5), 0, hy)
+      halo(w / 2, hy, Math.min(w, h) * 0.44, '#ffffff', mix(c, NIGHT, 0.5))
+      out.push({ kind: 'rect', x: 0, y: hy, w, h: h - hy, color: mix(c, NIGHT, 0.9) })
+      // The light is cut by the horizon, and by dark bars thinning upwards.
+      for (let i = 0; i < 5; i++) out.push({ kind: 'rect', x: 0, y: hy - 12 - i * 17, w, h: 5.5 - i, color: mix(c, NIGHT, 0.56) })
+      for (let i = -14; i <= 14; i++) out.push({ kind: 'line', pts: [w / 2 + i * w * 0.035, hy, w / 2 + i * w * 0.26, h], color: mix(c, glow, 0.5), width: 0.7 })
+      for (let i = 0; i < 12; i++) {
+        const y = hy + (h - hy) * Math.pow(i / 11, 2.2)
+        out.push({ kind: 'line', pts: [0, y, w, y], color: mix(c, glow, 0.5), width: i ? 0.7 : 1.4 })
+      }
+      out.push({ kind: 'rect', x: margin, y: h * 0.16 - 58, w: 44, h: 4, color: glow })
+      heading(margin, h * 0.16, w - 2 * margin, '#ffffff', pale)
+      break
+    }
+    case 'pulse': {
+      // An instrument dial: rings, graduations and a trace running through.
+      shade(mix(c, NIGHT, 0.8), deep)
+      const cx = w / 2
+      const cy = h * 0.4
+      const r = Math.min(w, h) * 0.3
+      halo(cx, cy, r * 1.25, mix(c, '#ffffff', 0.05), mix(c, NIGHT, 0.82), 18)
+      for (let k = 0; k < 4; k++) out.push({ kind: 'line', pts: disc(cx, cy, r * (1 - k * 0.22)), color: mix(c, k ? glow : '#ffffff', k ? 0.45 : 0.75), width: k ? 0.7 : 1.3 })
+      for (let i = 0; i < 72; i++) {
+        const a = (i / 72) * Math.PI * 2
+        const long = i % 6 === 0
+        out.push({ kind: 'line', pts: [cx + Math.cos(a) * r * 1.06, cy + Math.sin(a) * r * 1.06, cx + Math.cos(a) * r * (long ? 1.16 : 1.1), cy + Math.sin(a) * r * (long ? 1.16 : 1.1)], color: long ? pale : mix(c, glow, 0.4), width: long ? 1.1 : 0.6 })
+      }
+      const trace: number[] = []
+      for (let i = 0; i <= 160; i++) {
+        const t = i / 160
+        const beat = Math.exp(-Math.pow((t - 0.5) * 9, 2))
+        trace.push(cx - r * 1.5 + t * r * 3, cy - Math.sin(t * Math.PI * 14) * r * 0.5 * beat)
+      }
+      out.push({ kind: 'line', pts: trace, color: '#ffffff', width: 1.5 })
+      // Brackets in the corners, as around a viewfinder.
+      const b = 26
+      for (const [x, y, sx, sy] of [[margin, margin, 1, 1], [w - margin, margin, -1, 1], [margin, h - margin, 1, -1], [w - margin, h - margin, -1, -1]]) {
+        out.push({ kind: 'line', pts: [x + sx * b, y, x, y, x, y + sy * b], color: glow, width: 1.2 })
+      }
+      heading(w / 2, h * 0.76, w - 2 * margin - 40, '#ffffff', pale, 'center', 32)
+      break
+    }
     case 'band': {
       // A solid band across the top carrying the title; the rest stays calm.
       const bandH = h * 0.34

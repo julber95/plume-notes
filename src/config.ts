@@ -11,6 +11,10 @@ export const MS_CLIENT_ID: string = CLIENT_ID || import.meta.env.VITE_MS_CLIENT_
 // Name of the folder created at the root of OneDrive.
 export const ONEDRIVE_FOLDER = 'Plume'
 
+// File kept in that folder: the colours and symbols chosen for the folders and
+// the notebooks, so that every device shows the same ones.
+export const LOOKS_FILE = 'plume-library.json'
+
 // Permission requested from Microsoft. "Files.ReadWrite" is the narrowest one
 // that allows the Plume folder to live at the root of OneDrive.
 export const MS_SCOPES = 'Files.ReadWrite offline_access'

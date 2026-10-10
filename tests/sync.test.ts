@@ -1,8 +1,8 @@
 import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { allNodes, applyStrokeChange, closeDb, getPages, getStrokes } from '../src/db'
-import { createFolder, createNotebook, deleteNode, moveNode, renameNode } from '../src/library'
+import { allNodes, applyStrokeChange, closeDb, createNotebook as putNotebook, getPages, getStrokes, kvGet, kvSet, putNodes, upgradeLibrary } from '../src/db'
+import { createFolder, createNotebook, deleteNode, moveNode, renameNode, setLook } from '../src/library'
 import { ROOT, type LibNode } from '../src/model'
 import { buildNotebookPdf } from '../src/pdf/build'
 import { extractPlumeData } from '../src/pdf/extract'
@@ -309,6 +309,59 @@ describe('OneDrive sync', () => {
     expect((await getPages(nb.id))[0].bg).toBe('lined')
   })
 
+  it('the colour and the symbol of folders and notebooks follow on the other devices', async () => {
+    const maths = await createFolder(ROOT, 'Maths', { color: '#0078d4', symbol: 'sigma' })
+    const nb = await createNotebook(maths.id, 'Algebra', 'grid', 'portrait')
+    await createFolder(ROOT, 'Plain')
+    await engine.sync()
+    expect(engine.status.state).toBe('ok')
+    expect(drive.tree()).toContain('Plume/plume-library.json')
+    const calls = drive.calls.length
+    await engine.sync()
+    // Nothing chosen since: the file is neither read nor written again.
+    expect(drive.calls.slice(calls).filter((c) => c.includes('plume-library') || c.startsWith('PUT'))).toEqual([])
+
+    await freshDevice()
+    await engine.sync()
+    expect((await byName('Maths')).look).toEqual({ color: '#0078d4', symbol: 'sigma' })
+    expect((await byName('Plain')).look).toBeUndefined()
+    expect(await local()).toEqual(['Maths/', 'Maths/Algebra.pdf', 'Plain/'])
+
+    // Chosen on this second device: the notebook's logo, and another colour for the folder.
+    await setLook((await byName('Algebra')).id, { color: '#c239b3', symbol: '📐' })
+    await setLook((await byName('Maths')).id, { color: '#498205' })
+    expect(engine.status.state).toBe('ok')
+    await engine.refresh()
+    expect(engine.status.state).toBe('pending')
+    await engine.sync()
+    expect(engine.status.state).toBe('ok')
+    // The notebook itself was not sent again for a change of logo.
+    expect(drive.calls.filter((c) => c.startsWith('PUT') && c.includes('Algebra')).length).toBe(1)
+
+    await freshDevice()
+    await engine.sync()
+    expect((await byName('Maths')).look).toEqual({ color: '#498205' })
+    expect((await byName('Algebra')).look).toEqual({ color: '#c239b3', symbol: '📐' })
+    expect(nb.look).toBeUndefined()
+  })
+
+  it('a look chosen elsewhere reaches a device that is already in sync', async () => {
+    const maths = await createFolder(ROOT, 'Maths')
+    await engine.sync()
+    const remoteId = (await byName('Maths')).remoteId!
+    // Another device writes the file.
+    const file = { version: 1, items: { [remoteId]: { color: '#e3008c', at: Date.now() + 1000 } } }
+    drive.add(drive.find('Plume')!.id, 'plume-library.json', new TextEncoder().encode(JSON.stringify(file)))
+    await engine.sync()
+    expect((await byName('Maths')).look).toEqual({ color: '#e3008c' })
+    // An older choice made here does not win over it; a newer one does.
+    await setLook(maths.id, { color: '#107c10' })
+    await engine.sync()
+    expect((await byName('Maths')).look).toEqual({ color: '#e3008c' })
+    const item = drive.find('Plume/plume-library.json')!
+    expect(JSON.parse(new TextDecoder().decode(item.content)).items[remoteId].color).toBe('#e3008c')
+  })
+
   it('reports a required sign-in or a missing configuration', async () => {
     auth = 'disabled'
     await engine.sync()
@@ -325,6 +378,31 @@ async function getNodeByKept(id: string): Promise<LibNode> {
 }
 
 describe('local storage', () => {
+  it('a library written by the previous version opens with the default icons', async () => {
+    // As the previous version left them: no look, no mark on the notebooks made from a PDF.
+    const now = Date.now()
+    await putNodes([{ id: 'f', kind: 'folder', name: 'Old folder', parentId: ROOT, createdAt: now, updatedAt: now }])
+    const nb = await createNotebook('f', 'Old notes', 'grid', 'portrait')
+    const handout: LibNode = { id: 'h', kind: 'notebook', name: 'Old handout', parentId: ROOT, createdAt: now, updatedAt: now, pageIds: ['p1', 'p2'], bg: 'blank', orient: 'portrait', rev: 0, uploadedRev: -1 }
+    await putNotebook(handout, [
+      { id: 'p1', notebookId: 'h', bg: 'blank', orient: 'portrait', rev: 0, pdf: { asset: 'a', index: 0 } },
+      { id: 'p2', notebookId: 'h', bg: 'blank', orient: 'portrait', rev: 0, pdf: { asset: 'a', index: 1 } },
+    ])
+    await kvSet('firstpage:h', { rev: 0, page: 'p1' })
+    await upgradeLibrary()
+    await upgradeLibrary()
+    const nodes = await allNodes()
+    expect(nodes.map((n) => [n.name, n.look, n.fromPdf]).sort()).toEqual([
+      ['Old folder', undefined, undefined],
+      ['Old handout', undefined, true],
+      ['Old notes', undefined, undefined],
+    ])
+    expect(await kvGet('firstpage:h')).toBeUndefined()
+    expect((await getPages(nb.id)).length).toBe(1)
+    // Nothing of this needs to be sent to OneDrive.
+    expect(nodes.some((n) => n.lookDirty)).toBe(false)
+  })
+
   it('every saved stroke survives an abrupt stop of the application', async () => {
     const nb = await createNotebook(ROOT, 'Course', 'grid', 'portrait')
     await write(nb, 4)

@@ -1,8 +1,9 @@
 import '@fontsource-variable/inter/wght.css'
+import '@fontsource-variable/oxanium/wght.css'
 import '@fontsource/parisienne/latin-400.css'
 import './styles.css'
 import { registerSW } from 'virtual:pwa-register'
-import { getNode, updateNode } from './db'
+import { getNode, updateNode, upgradeLibrary } from './db'
 import { ROOT, type LibNode } from './model'
 import { buildPdf, extractData } from './pdf/client'
 import { createAuth } from './sync/auth'
@@ -172,6 +173,7 @@ async function start(): Promise<void> {
     return
   }
   auth.onChange = () => void engine.refresh()
+  await upgradeLibrary().catch((e) => console.error('Library upgrade', e))
   await route()
   void armAutoExport()
   void engine.sync()

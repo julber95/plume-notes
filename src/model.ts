@@ -58,6 +58,14 @@ export interface Asset {
 
 export const ROOT = 'root'
 
+/** How a folder or a notebook is pictured in the library. Absent fields mean the default. */
+export interface Look {
+  /** "#rrggbb" */
+  color?: string
+  /** Name of one of the symbols, or an emoji. */
+  symbol?: string
+}
+
 export interface LibNode {
   id: string
   kind: 'folder' | 'notebook'
@@ -78,6 +86,13 @@ export interface LibNode {
   /** Deleted locally, OneDrive deletion pending. */
   deleted?: boolean
 
+  /** Colour and symbol chosen for the icon, shared between devices. */
+  look?: Look
+  /** When the look was last chosen (the latest choice wins between devices). */
+  lookAt?: number
+  /** Look chosen here, not yet written to OneDrive. */
+  lookDirty?: boolean
+
   // Notebooks only
   pageIds?: string[]
   bg?: Background
@@ -90,6 +105,8 @@ export interface LibNode {
   needsDownload?: boolean
   /** PDF present in the folder but not created by Plume. */
   foreign?: boolean
+  /** Most of its pages come from an imported PDF (it gets the PDF logo). */
+  fromPdf?: boolean
 
   // Kept on this device only
   /** Pinned at the top of the library. */
@@ -103,6 +120,11 @@ export function pageSize(page: Pick<Page, 'orient' | 'w' | 'h'>): { w: number; h
   return page.orient === 'landscape' ? { w: A4.h, h: A4.w } : { w: A4.w, h: A4.h }
 }
 
+/** Do most of these pages show a page of an imported PDF? */
+export function mostlyPdf(pages: Pick<Page, 'pdf'>[]): boolean {
+  return pages.length > 0 && pages.filter((p) => p.pdf).length * 2 > pages.length
+}
+
 export function uid(): string {
   return crypto.randomUUID()
 }
@@ -112,7 +134,7 @@ export function isDirtyNotebook(n: LibNode): boolean {
 }
 
 export function hasPendingSync(n: LibNode): boolean {
-  if (n.deleted) return true
+  if (n.deleted || n.lookDirty) return true
   if (n.kind === 'notebook' && n.foreign) return false
   return !n.remoteId || !!n.metaDirty || isDirtyNotebook(n) || !!n.needsDownload
 }

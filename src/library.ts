@@ -3,9 +3,14 @@
 
 import { allNodes, clearNotebookContent, createNotebook as dbCreateNotebook, mutateNodes, purgeNodes, putNodes, type NotebookContent } from './db'
 import type { Cover } from './covers'
-import { ROOT, sanitizeName, siblingNames, uid, uniqueName, type Background, type LibNode, type Orientation, type Page } from './model'
+import { ROOT, mostlyPdf, sanitizeName, siblingNames, uid, uniqueName, type Background, type LibNode, type Look, type Orientation, type Page } from './model'
 
-export async function createFolder(parentId: string, rawName: string): Promise<LibNode> {
+/** The fields recording a look chosen now (nothing for the default one). */
+function chosen(look?: Look): Partial<LibNode> {
+  return look && (look.color || look.symbol) ? { look, lookAt: Date.now(), lookDirty: true } : {}
+}
+
+export async function createFolder(parentId: string, rawName: string, look?: Look): Promise<LibNode> {
   const nodes = await allNodes()
   const now = Date.now()
   const node: LibNode = {
@@ -15,13 +20,14 @@ export async function createFolder(parentId: string, rawName: string): Promise<L
     parentId,
     createdAt: now,
     updatedAt: now,
+    ...chosen(look),
   }
   await putNodes([node])
   return node
 }
 
 /** Creates a notebook with a first page, preceded by a cover page if one is given. */
-export async function createNotebook(parentId: string, rawName: string, bg: Background, orient: Orientation, cover?: Cover): Promise<LibNode> {
+export async function createNotebook(parentId: string, rawName: string, bg: Background, orient: Orientation, cover?: Cover, look?: Look): Promise<LibNode> {
   const nodes = await allNodes()
   const now = Date.now()
   const id = uid()
@@ -39,6 +45,7 @@ export async function createNotebook(parentId: string, rawName: string, bg: Back
     orient,
     rev: 0,
     uploadedRev: -1,
+    ...chosen(look),
   }
   await dbCreateNotebook(node, pages)
   return node
@@ -65,6 +72,7 @@ export async function importNotebook(parentId: string, rawName: string, bg: Back
     orient,
     rev: 0,
     uploadedRev: -1,
+    ...(mostlyPdf(content.pages) ? { fromPdf: true } : {}),
   }
   await dbCreateNotebook(node, content.pages, content.strokes, content.assets)
   return node
@@ -80,6 +88,18 @@ export function renameNode(id: string, rawName: string): Promise<void> {
     n.name = name
     n.metaDirty = true
     n.updatedAt = Date.now()
+    s.put(n)
+  })
+}
+
+/** Changes the colour and the symbol of an item's icon. */
+export function setLook(id: string, look: Look): Promise<void> {
+  return mutateNodes(async (s) => {
+    const n = await s.get(id)
+    if (!n) return
+    n.look = { ...(look.color ? { color: look.color } : {}), ...(look.symbol ? { symbol: look.symbol } : {}) }
+    n.lookAt = Date.now()
+    n.lookDirty = true
     s.put(n)
   })
 }

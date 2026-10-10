@@ -174,6 +174,7 @@ These points could not be verified without the tablet. Ten minutes is enough.
 | Network back | Turn airplane mode off | The indicator switches to "Up to date" within a minute |
 | PDF in OneDrive | Open OneDrive on the computer | The notebook's PDF is in `Plume/…`, up to date |
 | Folders | Create, rename, move a folder in Plume | The same change appears in OneDrive |
+| Colours | Press and hold a folder, choose "Folder colour"; open Plume on another device | The folder has the same colour and symbol there (OneDrive itself keeps its own colours) |
 
 If one of these does not give the expected result, note which one and under
 what conditions: that is what will need adjusting.

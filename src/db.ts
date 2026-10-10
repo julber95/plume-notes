@@ -94,6 +94,27 @@ export function kvSet(key: string, value: unknown): Promise<void> {
   })
 }
 
+/**
+ * Brings a library written by an older version up to date, once: notebooks
+ * made from a PDF are marked as such, and the pictures of first pages that
+ * the library no longer shows are thrown away.
+ */
+export async function upgradeLibrary(): Promise<void> {
+  if ((await kvGet<number>('libraryVersion')) === 2) return
+  await tx(['nodes', 'pages', 'kv'], 'readwrite', async (t) => {
+    const pages = (await req(t.objectStore('pages').getAll())) as Page[]
+    const nodes = t.objectStore('nodes')
+    for (const n of (await req(nodes.getAll())) as LibNode[]) {
+      if (n.kind !== 'notebook' || n.fromPdf !== undefined) continue
+      const own = pages.filter((p) => p.notebookId === n.id)
+      if (own.length && own.filter((p) => p.pdf).length * 2 > own.length) nodes.put({ ...n, fromPdf: true })
+    }
+    const kv = t.objectStore('kv')
+    for (const key of await req(kv.getAllKeys())) if (typeof key === 'string' && key.startsWith('firstpage:')) kv.delete(key)
+    kv.put(2, 'libraryVersion')
+  })
+}
+
 // ---------- Library ----------
 
 export function allNodes(): Promise<LibNode[]> {

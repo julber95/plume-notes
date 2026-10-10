@@ -6,9 +6,9 @@
 // is pending. Nothing is ever silently overwritten: if a notebook changed on
 // both sides, both versions are kept.
 
-import { ONEDRIVE_FOLDER } from '../config'
+import { LOOKS_FILE, ONEDRIVE_FOLDER } from '../config'
 import { allNodes, getNode, kvGet, kvSet, mutateNodes, purgeNodes, replaceNotebookContent, updateNode } from '../db'
-import { ROOT, conflictStamp, hasPendingSync, isDirtyNotebook, siblingNames, uid, uniqueName, type LibNode, type Page } from '../model'
+import { ROOT, conflictStamp, hasPendingSync, isDirtyNotebook, mostlyPdf, siblingNames, uid, uniqueName, type LibNode, type Look, type Page } from '../model'
 import { dataToContent, type NotebookData } from '../pdf/codec'
 import type { BuiltPdf } from '../pdf/fromDb'
 import { AuthRequiredError, GraphError, type DriveItem, type GraphClient } from './graph'
@@ -58,6 +58,8 @@ function sameContent(n: LibNode, it: DriveItem): boolean {
 function detach(n: LibNode): void {
   n.remoteId = n.eTag = n.cTag = n.sha1 = n.sha256 = undefined
   n.metaDirty = false
+  // Looks are recorded under the OneDrive id: this one will be written again under the new id.
+  if (n.look) n.lookDirty = true
   if (n.kind === 'notebook') {
     n.uploadedRev = -1
     n.needsDownload = false
@@ -85,6 +87,7 @@ function forkConflict(nodes: LibNode[], n: LibNode, remoteName?: string, remoteP
     rev: 0,
     uploadedRev: 0,
     needsDownload: true,
+    ...(n.look ? { look: n.look, lookAt: n.lookAt } : {}),
   }
   detach(n)
   n.name = uniqueName(`${twin.name} (conflict ${conflictStamp(new Date(now))})`, siblingNames(nodes, n.parentId, 'notebook', n.id))
@@ -92,6 +95,33 @@ function forkConflict(nodes: LibNode[], n: LibNode, remoteName?: string, remoteP
   nodes.push(twin)
   return twin
 }
+
+/** Content of the looks file: for each OneDrive id, the look and when it was chosen. */
+interface LooksFile {
+  version: 1
+  items: Record<string, Look & { at: number }>
+}
+
+function parseLooks(bytes: Uint8Array): LooksFile {
+  const out: LooksFile = { version: 1, items: {} }
+  try {
+    const raw = JSON.parse(new TextDecoder().decode(bytes)) as { items?: Record<string, unknown> }
+    for (const [id, v] of Object.entries(raw.items ?? {})) {
+      const e = v as { color?: unknown; symbol?: unknown; at?: unknown }
+      if (!e || typeof e.at !== 'number') continue
+      out.items[id] = {
+        at: e.at,
+        ...(typeof e.color === 'string' && /^#[0-9a-f]{6}$/i.test(e.color) ? { color: e.color } : {}),
+        ...(typeof e.symbol === 'string' && e.symbol.length <= 24 ? { symbol: e.symbol } : {}),
+      }
+    }
+  } catch {
+    // unreadable file: it is written again from what this device knows
+  }
+  return out
+}
+
+const sameLook = (a?: Look, b?: Look) => (a?.color ?? '') === (b?.color ?? '') && (a?.symbol ?? '') === (b?.symbol ?? '')
 
 const conflictText = (original: string, copy: string) =>
   `"${original}" was modified in two places. The changes you made here are kept in "${copy}".`
@@ -208,7 +238,74 @@ export class SyncEngine {
     await this.pushFolders(g, rootId)
     await this.pushMeta(g, rootId)
     await this.pushNotebooks(g, rootId)
+    await this.syncLooks(g, rootId)
     await this.downloads(g)
+  }
+
+  /**
+   * Colours and symbols of the icons. They live in one small file of the
+   * Plume folder; for each item the latest choice wins.
+   */
+  private async syncLooks(g: GraphClient, rootId: string): Promise<void> {
+    const stale = await kvGet<boolean>('looksStale')
+    const pending = (await allNodes()).some((n) => n.lookDirty && n.remoteId && !n.deleted)
+    if (!stale && !pending) return
+
+    const existing = await g.childByName(rootId, LOOKS_FILE)
+    let item = existing && !existing.folder ? existing : undefined
+    let file: LooksFile = { version: 1, items: {} }
+    if (item) {
+      try {
+        item = await g.getItem(item.id)
+        file = parseLooks(await g.download(item))
+      } catch (e) {
+        if (!(e instanceof GraphError) || e.status !== 404) throw e
+        item = undefined
+      }
+    }
+
+    // What the other devices chose, then what was chosen here.
+    let changedHere = false
+    let changedThere = false
+    const sent = new Map<string, number>()
+    await mutateNodes(async (s) => {
+      for (const n of await s.all()) {
+        if (!n.remoteId || n.deleted) continue
+        const theirs = file.items[n.remoteId]
+        if (theirs && theirs.at > (n.lookAt ?? 0)) {
+          const { at, ...look } = theirs
+          if (!sameLook(n.look, look)) changedHere = true
+          n.look = look
+          n.lookAt = at
+          n.lookDirty = false
+          s.put(n)
+        } else if (n.look && (n.lookDirty || !item)) {
+          const at = n.lookAt ?? Date.now()
+          if (!theirs || theirs.at !== at || !sameLook(theirs, n.look)) {
+            file.items[n.remoteId] = { ...n.look, at }
+            changedThere = true
+          }
+          sent.set(n.id, at)
+        }
+      }
+    })
+    if (changedHere) this.emit({ type: 'library' })
+
+    if (changedThere) {
+      const bytes = new TextEncoder().encode(JSON.stringify(file))
+      try {
+        item = item ? await g.uploadReplace(item.id, bytes, item.eTag, 'application/json') : await g.uploadNew(rootId, LOOKS_FILE, bytes, 'application/json')
+      } catch (e) {
+        if (!(e instanceof GraphError) || ![404, 409, 412].includes(e.status)) throw e
+        // Another device wrote the file at the same moment: read it again.
+        await kvSet('looksStale', true)
+        this.again = true
+        return
+      }
+    }
+    for (const [id, at] of sent) await updateNode(id, (m) => (m.lookAt === at || m.lookAt === undefined ? void (m.lookDirty = false) : false))
+    await kvSet('looksETag', item?.eTag)
+    await kvSet('looksStale', undefined)
   }
 
   private async detachAll(): Promise<void> {
@@ -231,6 +328,9 @@ export class SyncEngine {
     const ch = await g.changes(rootId, await kvGet<string>('deltaLink'))
     const remote = new Map<string, DriveItem>()
     for (const it of ch.items) if (it.id !== rootId) remote.set(it.id, it)
+    // The file of colours and symbols was changed by another device.
+    const looks = ch.items.find((it) => it.name === LOOKS_FILE && it.parentReference?.id === rootId && !it.deleted && !it.folder)
+    if (looks && looks.eTag !== (await kvGet<string>('looksETag'))) await kvSet('looksStale', true)
     const openId = this.host.openNotebookId()
     const notices: string[] = []
     const removed = new Set<string>()
@@ -548,6 +648,7 @@ export class SyncEngine {
         const ok = await replaceNotebookContent(n.id, n.rev ?? 0, content, (m) => {
           stamp(m)
           m.foreign = false
+          m.fromPdf = mostlyPdf(content.pages)
           m.bg = data.bg
           m.orient = data.orient
           m.rev = (m.rev ?? 0) + 1

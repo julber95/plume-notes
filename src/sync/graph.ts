@@ -174,15 +174,15 @@ export class GraphClient {
   }
 
   /** Uploads a new file; fails (409) if the name is already taken. */
-  async uploadNew(parentId: string, filename: string, bytes: Uint8Array): Promise<DriveItem> {
+  async uploadNew(parentId: string, filename: string, bytes: Uint8Array, type = 'application/pdf'): Promise<DriveItem> {
     const url = `/me/drive/items/${parentId}:/${encodeURIComponent(filename)}:/content?@microsoft.graph.conflictBehavior=fail`
-    const res = await this.request('PUT', url, { headers: { 'Content-Type': 'application/pdf' }, body: bytes as BodyInit })
+    const res = await this.request('PUT', url, { headers: { 'Content-Type': type }, body: bytes as BodyInit })
     return (await res.json()) as DriveItem
   }
 
   /** Replaces the content of a file; fails (412) if it changed since `eTag`. */
-  async uploadReplace(id: string, bytes: Uint8Array, eTag?: string): Promise<DriveItem> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/pdf' }
+  async uploadReplace(id: string, bytes: Uint8Array, eTag?: string, type = 'application/pdf'): Promise<DriveItem> {
+    const headers: Record<string, string> = { 'Content-Type': type }
     if (eTag) headers['If-Match'] = eTag
     const res = await this.request('PUT', `/me/drive/items/${id}/content`, { headers, body: bytes as BodyInit })
     return (await res.json()) as DriveItem

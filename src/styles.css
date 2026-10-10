@@ -7,7 +7,7 @@
   --text: #1b1a21;
   --muted: #6b6878;
   --icon: #4a4757;
-  --hover: rgba(27, 20, 48, 0.06);
+  --hover: rgba(79, 5, 153, 0.06);
   /* Violet: --accent for text, icons and outlines, --accent-fill behind --on-accent. */
   --accent: #4f0599;
   --accent-fill: #4f0599;
@@ -20,10 +20,32 @@
   --warn-bg: #fff6dd;
   --warn-line: #ecd48a;
   --float: rgba(255, 255, 255, 0.94);
-  --toast: #1b1a21;
+  --toast: rgba(27, 26, 33, 0.9);
   --radius: 6px;
-  --shadow: 0 8px 28px rgba(20, 16, 40, 0.12);
+  --shadow: 0 10px 34px rgba(46, 12, 96, 0.16), 0 1px 3px rgba(46, 12, 96, 0.08);
   --font: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  /* Titles only. */
+  --font-title: 'Oxanium Variable', 'Inter Variable', system-ui, sans-serif;
+
+  /* Frosted glass: a translucent pane, a fine edge, a light along its top. */
+  --glass: rgba(255, 255, 255, 0.62);
+  --glass-strong: rgba(255, 255, 255, 0.86);
+  --glass-line: rgba(79, 5, 153, 0.14);
+  --glass-light: rgba(255, 255, 255, 0.95);
+  --frost: blur(18px) saturate(1.5);
+  --card: rgba(255, 255, 255, 0.66);
+  --field: rgba(255, 255, 255, 0.8);
+  --glow: rgba(140, 64, 239, 0.26);
+  --glow-soft: rgba(140, 64, 239, 0.1);
+  --violet-1: #9a52f5;
+  --violet-2: #4f0599;
+  --violet-3: #3a0372;
+  --fill: linear-gradient(135deg, var(--violet-1), var(--violet-2) 58%, var(--violet-3));
+  --ink-shine: linear-gradient(115deg, #3a0372, #4f0599 40%, #8c40ef);
+  --hairline: linear-gradient(90deg, transparent, rgba(140, 64, 239, 0.55), transparent);
+  --dot: rgba(79, 5, 153, 0.13);
+  --barb: 0.5;
+  --scrim: rgba(40, 20, 80, 0.28);
   color-scheme: light;
 }
 
@@ -36,7 +58,7 @@
   --text: #e9e7ef;
   --muted: #9a96a8;
   --icon: #c5c1d1;
-  --hover: rgba(255, 255, 255, 0.07);
+  --hover: rgba(178, 140, 248, 0.09);
   --accent: #b28cf8;
   --accent-fill: #8c40ef;
   --accent-soft: #2a1e45;
@@ -48,8 +70,25 @@
   --warn-bg: #2f2814;
   --warn-line: #5c4d1f;
   --float: rgba(32, 30, 40, 0.95);
-  --toast: #2b2935;
-  --shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --toast: rgba(43, 41, 53, 0.92);
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(178, 140, 248, 0.06);
+
+  --glass: rgba(30, 27, 42, 0.58);
+  --glass-strong: rgba(24, 22, 32, 0.88);
+  --glass-line: rgba(178, 140, 248, 0.17);
+  --glass-light: rgba(255, 255, 255, 0.09);
+  --card: rgba(255, 255, 255, 0.035);
+  --field: rgba(255, 255, 255, 0.05);
+  --glow: rgba(140, 64, 239, 0.42);
+  --glow-soft: rgba(140, 64, 239, 0.16);
+  --violet-1: #a56bf7;
+  --violet-2: #7a2de0;
+  --violet-3: #4f0599;
+  --ink-shine: linear-gradient(115deg, #efe6ff, #c9aaff 45%, #8c40ef);
+  --hairline: linear-gradient(90deg, transparent, rgba(178, 140, 248, 0.6), transparent);
+  --dot: rgba(178, 140, 248, 0.13);
+  --barb: 0.75;
+  --scrim: rgba(6, 4, 14, 0.6);
   color-scheme: dark;
 }
 
@@ -59,7 +98,6 @@
 .dark-pages .thumb-page canvas {
   filter: invert(1) hue-rotate(180deg);
 }
-
 
 * {
   box-sizing: border-box;
@@ -84,6 +122,40 @@ body {
   -webkit-user-select: none;
 }
 
+/* The scenery behind every screen: two violet lights, a field of fine dots
+   fading out, and the barbs of a feather sweeping in from a corner. It never
+   moves, so the panes of glass above it cost nothing to keep blurred. */
+#app {
+  position: relative;
+  isolation: isolate;
+}
+
+#app::before,
+#app::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+#app::before {
+  background:
+    radial-gradient(46vmax 38vmax at 4% -6%, var(--glow), transparent 68%),
+    radial-gradient(40vmax 34vmax at 104% 102%, var(--glow), transparent 66%),
+    radial-gradient(30vmax 22vmax at 70% 8%, var(--glow-soft), transparent 70%);
+}
+
+#app::after {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 600 600' fill='none' stroke='%238c40ef' stroke-linecap='round'%3E%3Cg stroke-width='1' opacity='.55'%3E%3Cpath d='M600 40C420 60 250 170 150 330S40 560 20 600'/%3E%3Cpath d='M600 90C440 110 290 210 200 350S90 560 70 600'/%3E%3Cpath d='M600 140C460 160 330 250 250 370S140 560 120 600'/%3E%3Cpath d='M600 190C480 210 370 290 300 390S190 560 170 600'/%3E%3Cpath d='M600 240C500 260 410 330 350 410S240 560 220 600'/%3E%3Cpath d='M600 290C520 310 450 370 400 430S290 560 270 600'/%3E%3Cpath d='M600 340C540 360 490 410 450 450S340 560 320 600'/%3E%3C/g%3E%3Cg stroke-width='.6' opacity='.4'%3E%3Cpath d='M600 65C430 85 270 190 175 340S65 560 45 600'/%3E%3Cpath d='M600 115C450 135 310 230 225 360S115 560 95 600'/%3E%3Cpath d='M600 165C470 185 350 270 275 380S165 560 145 600'/%3E%3Cpath d='M600 215C490 235 390 310 325 400S215 560 195 600'/%3E%3Cpath d='M600 265C510 285 430 350 375 420S265 560 245 600'/%3E%3Cpath d='M600 315C530 335 470 390 425 440S315 560 295 600'/%3E%3C/g%3E%3C/svg%3E")
+      right top / min(78vmin, 640px) no-repeat,
+    radial-gradient(var(--dot) 1px, transparent 1.4px) 0 0 / 22px 22px;
+  opacity: var(--barb);
+  -webkit-mask-image: linear-gradient(200deg, #000 8%, rgba(0, 0, 0, 0.35) 46%, transparent 78%);
+  mask-image: linear-gradient(200deg, #000 8%, rgba(0, 0, 0, 0.35) 46%, transparent 78%);
+}
+
 input,
 select,
 button {
@@ -96,11 +168,29 @@ input[type='number'],
 select {
   user-select: text;
   -webkit-user-select: text;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--field);
   padding: 8px 10px;
   min-height: 40px;
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s;
+}
+
+input[type='text']:focus,
+input[type='number']:focus,
+select:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 0 5px var(--glow-soft);
+}
+
+select option {
+  background: var(--surface);
+  color: var(--text);
 }
 
 input:focus-visible,
@@ -123,34 +213,80 @@ button:focus-visible,
   color: var(--muted);
 }
 
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--accent) 34%, transparent) transparent;
+}
+
 /* ---------- Buttons ---------- */
 
 .btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   min-height: 40px;
   padding: 0 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
+  box-shadow: inset 0 1px 0 var(--glass-light);
   font-weight: 550;
   cursor: pointer;
+  overflow: hidden;
+  transition:
+    transform 0.14s,
+    box-shadow 0.2s,
+    border-color 0.2s,
+    background 0.2s;
+}
+
+/* A light sweeps across the button under the pointer. */
+.btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -60%;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+  transform: skewX(-20deg);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.btn:hover::after {
+  animation: sweep 0.7s ease-out;
 }
 
 .btn:hover {
-  background: var(--hover);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--glass-light),
+    0 0 0 3px var(--glow-soft);
 }
 
 .btn:active {
-  background: var(--panel);
+  transform: scale(0.96);
 }
 
 .btn.primary {
-  background: var(--accent-fill);
-  border-color: var(--accent-fill);
+  background: var(--fill);
+  border-color: transparent;
   color: var(--on-accent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 4px 16px var(--glow);
+}
+
+.btn.primary:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.36),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 6px 24px var(--glow),
+    0 0 0 3px var(--glow-soft);
 }
 
 .btn.primary:active {
@@ -159,8 +295,9 @@ button:focus-visible,
 
 .btn.danger {
   background: var(--danger-fill);
-  border-color: var(--danger-fill);
+  border-color: transparent;
   color: var(--on-accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .btn.wide {
@@ -179,6 +316,11 @@ button:focus-visible,
   background: transparent;
   color: var(--icon);
   cursor: pointer;
+  transition:
+    background 0.16s,
+    color 0.16s,
+    transform 0.14s,
+    box-shadow 0.2s;
 }
 
 .icon-btn.small {
@@ -188,6 +330,11 @@ button:focus-visible,
 
 .icon-btn:hover {
   background: var(--hover);
+  color: var(--accent);
+}
+
+.icon-btn:active {
+  transform: scale(0.88);
 }
 
 .icon-btn:disabled {
@@ -198,10 +345,34 @@ button:focus-visible,
 .icon-btn.active {
   background: var(--accent-soft);
   color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent),
+    0 0 14px var(--glow-soft);
 }
 
 .icon-btn.danger {
   color: var(--danger);
+}
+
+/* Icons in two tones: the tint behind the outline. */
+svg .tint {
+  opacity: 0.15;
+  transition: opacity 0.16s;
+}
+
+.icon-btn:hover .tint,
+.icon-btn.active .tint,
+.menu button:hover .tint,
+.tree-row.current .tint {
+  opacity: 0.32;
+}
+
+.icon-btn svg {
+  transition: transform 0.2s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+.icon-btn:hover svg {
+  transform: scale(1.08);
 }
 
 .menu-icon {
@@ -211,6 +382,26 @@ button:focus-visible,
 .menu-icon svg {
   width: 19px;
   height: 19px;
+}
+
+/* ---------- Folder and notebook icons ---------- */
+
+.art {
+  display: inline-grid;
+  flex: none;
+}
+
+.art svg {
+  display: block;
+  width: 46px;
+  height: 46px;
+  filter: drop-shadow(0 3px 5px rgba(30, 8, 70, 0.28));
+}
+
+.art.small svg {
+  width: 21px;
+  height: 21px;
+  filter: none;
 }
 
 /* ---------- Library ---------- */
@@ -230,8 +421,11 @@ button:focus-visible,
   padding: 0 8px 16px;
   padding-left: max(8px, env(safe-area-inset-left));
   overflow-y: auto;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border-right: 1px solid var(--glass-line);
+  box-shadow: inset -1px 0 0 var(--glass-light);
 }
 
 .library.tree-hidden .lib-side,
@@ -253,6 +447,7 @@ button:focus-visible,
 .brand-mark {
   display: inline-grid;
   flex: none;
+  filter: drop-shadow(0 2px 8px var(--glow));
 }
 
 /* The name of the application, handwritten */
@@ -262,58 +457,123 @@ button:focus-visible,
   font-weight: 400;
   letter-spacing: 0;
   color: var(--accent);
+  background: var(--ink-shine);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .brand .wordmark {
   font-size: 25px;
-  line-height: 1;
-  padding-top: 3px;
+  line-height: 1.2;
+  padding: 3px 4px 0 0;
 }
 
+/* Top of the first screen: a pane of glass carrying the name and the counts */
+
 .hero {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 30px 0 26px;
-  border-bottom: 1px solid var(--line);
+  gap: 22px;
+  margin-top: 22px;
+  padding: 26px 28px;
+  border: 1px solid var(--glass-line);
+  border-radius: 10px;
+  background:
+    linear-gradient(120deg, var(--glow-soft), transparent 55%),
+    var(--card);
+  box-shadow:
+    inset 0 1px 0 var(--glass-light),
+    0 10px 40px -18px var(--glow);
+  overflow: hidden;
+}
+
+/* Rings turning slowly around the mark, and a line of light under the pane. */
+.hero::before {
+  content: '';
+  position: absolute;
+  left: -52px;
+  top: 50%;
+  width: 220px;
+  height: 220px;
+  margin-top: -110px;
+  border-radius: 50%;
+  background:
+    radial-gradient(closest-side, transparent 62%, var(--glass-line) 62.5%, transparent 64%),
+    radial-gradient(closest-side, transparent 80%, var(--glass-line) 80.5%, transparent 82%),
+    conic-gradient(from 0deg, transparent 0 70%, var(--glow) 88%, transparent 100%);
+  -webkit-mask-image: radial-gradient(closest-side, transparent 40%, #000 41%, #000 99%, transparent);
+  mask-image: radial-gradient(closest-side, transparent 40%, #000 41%, #000 99%, transparent);
+  animation: turn 24s linear infinite;
+  pointer-events: none;
+}
+
+.hero::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--hairline);
+}
+
+.hero > * {
+  position: relative;
 }
 
 .hero .brand-mark svg {
-  width: 60px;
-  height: 60px;
+  width: 64px;
+  height: 64px;
+}
+
+.hero .brand-mark {
+  filter: drop-shadow(0 6px 22px var(--glow));
 }
 
 .hero h1 {
   margin: 0;
-  font-size: 58px;
-  line-height: 1.05;
+  padding-right: 10px;
+  font-size: 60px;
+  line-height: 1.12;
 }
 
 .hero-sub {
   display: grid;
-  gap: 1px;
-  margin: 2px 0 0;
+  gap: 6px;
+  margin: 0;
   color: var(--muted);
   font-size: 13.5px;
 }
 
 .hero-stats {
+  justify-self: start;
+  padding: 3px 10px;
+  border: 1px solid var(--glass-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-title);
   font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
 }
-
 
 .tree {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1px;
+  gap: 2px;
 }
 
 .tree-row {
+  position: relative;
   display: flex;
   align-items: center;
   min-height: 40px;
   border-radius: var(--radius);
+  transition: background 0.16s;
 }
 
 .tree-row:hover {
@@ -321,9 +581,22 @@ button:focus-visible,
 }
 
 .tree-row.current {
-  background: var(--accent-soft);
+  background: linear-gradient(90deg, var(--accent-soft), transparent 130%);
   color: var(--accent);
   font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--glass-line);
+}
+
+.tree-row.current::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--fill);
+  box-shadow: 0 0 10px var(--glow);
 }
 
 .tree-toggle {
@@ -346,6 +619,7 @@ button.tree-toggle {
 .tree-toggle svg {
   width: 16px;
   height: 16px;
+  transition: transform 0.2s;
 }
 
 .tree-toggle.open svg {
@@ -373,6 +647,10 @@ button.tree-toggle {
 
 .tree-row.current .menu-icon {
   color: var(--accent);
+}
+
+.tree-row.current .menu-icon svg {
+  filter: drop-shadow(0 0 5px var(--glow));
 }
 
 .tree-name {
@@ -405,8 +683,21 @@ button.tree-toggle {
   height: 56px;
   margin: 0 calc(-1 * var(--pad));
   padding: 0 calc(var(--pad) - 6px) 0 calc(var(--pad) - 10px);
-  background: var(--bg);
-  border-bottom: 1px solid var(--line);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border-bottom: 1px solid var(--glass-line);
+}
+
+.lib-head::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--hairline);
+  pointer-events: none;
 }
 
 .crumbs {
@@ -418,6 +709,9 @@ button.tree-toggle {
 }
 
 .crumbs button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: 0 1 auto;
   min-width: 0;
   min-height: 36px;
@@ -427,6 +721,18 @@ button.tree-toggle {
   background: none;
   color: var(--muted);
   cursor: pointer;
+  transition:
+    background 0.16s,
+    color 0.16s;
+}
+
+.crumbs button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.crumb-name,
+.crumbs button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -436,12 +742,15 @@ button.tree-toggle {
   flex-shrink: 0;
   max-width: 100%;
   color: var(--text);
-  font-weight: 600;
+  font-family: var(--font-title);
+  font-size: 15.5px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
 }
 
 .crumb-sep {
-  color: var(--muted);
-  opacity: 0.6;
+  color: var(--accent);
+  opacity: 0.55;
 }
 
 .lib-actions {
@@ -449,7 +758,7 @@ button.tree-toggle {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin: 16px 0 8px;
+  margin: 18px 0 8px;
 }
 
 .search-box {
@@ -461,10 +770,15 @@ button.tree-toggle {
   flex: 1 1 160px;
   margin-left: auto;
   padding: 0 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
+  box-shadow: inset 0 1px 0 var(--glass-light);
   color: var(--muted);
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s,
+    max-width 0.3s;
 }
 
 .lib-actions .spacer {
@@ -484,26 +798,54 @@ button.tree-toggle {
 }
 
 .search-box:focus-within {
+  max-width: 340px;
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 0 5px var(--glow-soft);
 }
 
+/* A section title: a small light, the name, the count, and a line fading out. */
 .lib-section {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin: 26px 0 10px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  align-items: center;
+  gap: 9px;
+  margin: 28px 0 11px;
+  font-family: var(--font-title);
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
+.lib-section::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--fill);
+  box-shadow: 0 0 8px var(--glow);
+  transform: rotate(45deg);
+}
+
+.lib-section::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--glass-line), transparent);
+}
+
 .lib-section .count {
-  font-weight: 500;
+  padding: 0 7px;
+  border: 1px solid var(--glass-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
-  opacity: 0.75;
 }
 
 /* One line per folder or notebook, as in a file explorer */
@@ -511,9 +853,10 @@ button.tree-toggle {
 .grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
+  box-shadow: inset 0 1px 0 var(--glass-light);
   overflow: hidden;
 }
 
@@ -527,66 +870,85 @@ button.tree-toggle {
   align-items: center;
   gap: 12px;
   min-width: 0;
-  min-height: 56px;
-  padding: 6px 6px 6px 10px;
-  border-bottom: 1px solid var(--line);
+  min-height: 62px;
+  padding: 6px 6px 6px 12px;
+  border-bottom: 1px solid var(--glass-line);
   cursor: pointer;
-}
-
-.card {
   -webkit-touch-callout: none;
   touch-action: pan-x pan-y;
+  transition:
+    transform 0.16s,
+    box-shadow 0.2s,
+    border-color 0.2s;
 }
 
 .card:last-child {
   border-bottom: 0;
 }
 
-.card:hover {
-  background: var(--hover);
+/* A glow follows the pointer (or shows where the finger pressed). */
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(220px circle at var(--mx, 30%) var(--my, 50%), var(--glow-soft), transparent 72%);
+  opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+}
+
+.card:hover::before,
+.card:active::before,
+.card:focus-visible::before {
+  opacity: 1;
+}
+
+/* A bar of light grows on the left of the line under the pointer. */
+.card:not(.tile)::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--fill);
+  box-shadow: 0 0 12px var(--glow);
+  transform: scaleY(0);
+  transition: transform 0.22s cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+
+.card:not(.tile):hover::after,
+.card:not(.tile):active::after {
+  transform: scaleY(1);
+}
+
+.card > * {
+  position: relative;
 }
 
 .card:focus-visible {
   outline-offset: -2px;
 }
 
-.folder-icon,
-.cover-well {
+.card-art {
   display: grid;
   place-items: center;
   flex: none;
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
 }
 
-.folder-icon {
-  color: var(--accent);
+.card-art .art {
+  transition: transform 0.28s cubic-bezier(0.3, 1.5, 0.5, 1);
 }
 
-/* The notebook's first page, small */
-
-.card .cover {
-  width: 30px;
-  height: 42px;
-  border-radius: 1px;
-  box-shadow: 0 0 0 1px rgba(20, 16, 40, 0.16);
+.card:hover .card-art .art {
+  transform: translateY(-2px) scale(1.07) rotate(-2deg);
 }
 
-.card .cover.landscape {
-  width: 42px;
-  height: 30px;
-}
-
-.card .cover.pictured {
-  background: #fff;
-  overflow: hidden;
-}
-
-.card .cover img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.card:active .card-art .art {
+  transform: scale(0.93);
 }
 
 .card-text {
@@ -594,7 +956,15 @@ button.tree-toggle {
   min-width: 0;
 }
 
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .card-name {
+  min-width: 0;
   font-weight: 550;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -617,17 +987,20 @@ button.tree-toggle {
 .card-date {
   flex: none;
   padding: 0 4px;
+  font-family: var(--font-title);
+  letter-spacing: 0.03em;
 }
 
 .fav-mark {
   display: inline-grid;
   flex: none;
   color: var(--accent);
+  filter: drop-shadow(0 0 5px var(--glow));
 }
 
 .fav-mark svg {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   fill: var(--accent);
 }
 
@@ -636,20 +1009,20 @@ button.tree-toggle {
   height: 42px;
 }
 
-/* Shortcuts: small sheets on one row, which scrolls sideways */
+/* Shortcuts: small panes on one row, which scrolls sideways */
 
 .grid.strip {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   margin-right: calc(-1 * var(--pad));
-  padding: 0 var(--pad) 8px 0;
+  padding: 4px var(--pad) 12px 2px;
   border: 0;
   border-radius: 0;
   background: none;
+  box-shadow: none;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;
-  scrollbar-width: thin;
 }
 
 .card.tile {
@@ -657,43 +1030,53 @@ button.tree-toggle {
   align-items: stretch;
   gap: 0;
   flex: none;
-  width: 136px;
+  width: 142px;
   min-height: 0;
   padding: 0;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
+  box-shadow: inset 0 1px 0 var(--glass-light);
   scroll-snap-align: start;
+  overflow: hidden;
 }
 
-.tile .folder-icon,
-.tile .cover-well {
+.card.tile:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  box-shadow:
+    inset 0 1px 0 var(--glass-light),
+    0 12px 26px -10px var(--glow),
+    0 0 0 3px var(--glow-soft);
+}
+
+.card.tile:active {
+  transform: scale(0.96);
+}
+
+/* The well the icon stands in: lit from above, on a fine grid. */
+.tile .card-art {
   width: auto;
-  height: 88px;
-  border-bottom: 1px solid var(--line);
-  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
-  background: var(--panel);
+  height: 96px;
+  border-bottom: 1px solid var(--glass-line);
+  background:
+    radial-gradient(90px 60px at 50% 0, var(--glow-soft), transparent),
+    linear-gradient(var(--glass-line) 1px, transparent 1px) 0 -1px / 100% 16px,
+    linear-gradient(90deg, var(--glass-line) 1px, transparent 1px) -1px 0 / 16px 100%;
 }
 
-.tile .folder-icon svg {
-  width: 34px;
-  height: 34px;
-  stroke-width: 1.2;
-}
-
-.tile .cover {
-  width: 50px;
-  height: 71px;
-}
-
-.tile .cover.landscape {
-  width: 84px;
-  height: 59px;
+.tile .art svg {
+  width: 66px;
+  height: 66px;
 }
 
 .tile .card-text {
   flex: none;
-  padding: 6px 9px 7px;
+  padding: 7px 9px 8px;
+}
+
+.tile .card-title {
+  align-items: flex-start;
 }
 
 .tile .card-name {
@@ -707,15 +1090,14 @@ button.tree-toggle {
   overflow-wrap: anywhere;
 }
 
+.tile .fav-mark,
+.tile .pending-dot {
+  margin-top: 2px;
+}
+
 .tile .card-sub {
   padding-right: 26px;
   font-size: 11.5px;
-}
-
-.tile .fav-mark {
-  position: absolute;
-  top: 6px;
-  right: 6px;
 }
 
 .tile .icon-btn {
@@ -727,17 +1109,22 @@ button.tree-toggle {
 }
 
 .pending-dot {
-  display: inline-block;
-  margin-left: 6px;
-  width: 7px;
-  height: 7px;
+  flex: none;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+  animation: pulse 1.8s ease-in-out infinite;
 }
 
 .empty {
-  margin: 12vh auto;
-  max-width: 34ch;
+  margin: 9vh auto;
+  max-width: 38ch;
+  padding: 30px 26px;
+  border: 1px dashed var(--glass-line);
+  border-radius: 10px;
+  background: radial-gradient(160px 90px at 50% 0, var(--glow-soft), transparent), var(--card);
   text-align: center;
   color: var(--muted);
 }
@@ -753,11 +1140,67 @@ button.tree-toggle {
   background: var(--warn-bg);
   user-select: text;
   -webkit-user-select: text;
+  animation: rise 0.3s backwards;
 }
 
 .notice span {
   flex: 1;
   padding-top: 6px;
+}
+
+/* Arriving on a screen of the library: everything settles into place in turn. */
+.library.arriving .lib-side {
+  animation: slide-right 0.36s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+
+.library.arriving .lib-head {
+  animation: fade 0.3s backwards;
+}
+
+.library.arriving .hero,
+.library.arriving .lib-actions,
+.library.arriving .lib-section,
+.library.arriving .grid,
+.library.arriving .empty {
+  animation: rise 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+
+.library.arriving .lib-actions {
+  animation-delay: 0.05s;
+}
+
+.library.arriving .listing > * {
+  animation-delay: 0.1s;
+}
+
+.library.arriving .card {
+  animation: rise 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  animation-delay: 0.34s;
+}
+
+.library.arriving .card:nth-child(1) {
+  animation-delay: 0.12s;
+}
+.library.arriving .card:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.library.arriving .card:nth-child(3) {
+  animation-delay: 0.18s;
+}
+.library.arriving .card:nth-child(4) {
+  animation-delay: 0.21s;
+}
+.library.arriving .card:nth-child(5) {
+  animation-delay: 0.24s;
+}
+.library.arriving .card:nth-child(6) {
+  animation-delay: 0.27s;
+}
+.library.arriving .card:nth-child(7) {
+  animation-delay: 0.3s;
+}
+.library.arriving .card:nth-child(8) {
+  animation-delay: 0.32s;
 }
 
 /* Too narrow for the tree to sit beside the content: it slides over it. */
@@ -769,14 +1212,17 @@ button.tree-toggle {
     left: 0;
     z-index: 11;
     width: min(280px, 84vw);
+    background: var(--glass-strong);
     box-shadow: var(--shadow);
+    animation: slide-right 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
   }
   .lib-scrim {
     display: block;
     position: absolute;
     inset: 0;
     z-index: 10;
-    background: rgba(10, 8, 20, 0.4);
+    background: var(--scrim);
+    animation: fade 0.25s backwards;
   }
   .library.tree-hidden .lib-scrim {
     display: none;
@@ -784,6 +1230,17 @@ button.tree-toggle {
   .sync-chip:not(.compact) .chip-label,
   .card-date {
     display: none;
+  }
+  .hero {
+    gap: 14px;
+    padding: 18px 16px;
+  }
+  .hero h1 {
+    font-size: 46px;
+  }
+  .hero .brand-mark svg {
+    width: 50px;
+    height: 50px;
   }
 }
 
@@ -824,12 +1281,30 @@ button.tree-toggle {
   flex: none;
   min-height: 36px;
   padding: 0 11px 0 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--card);
+  box-shadow: inset 0 1px 0 var(--glass-light);
   color: var(--muted);
+  font-family: var(--font-title);
   font-size: 13px;
+  font-weight: 550;
+  letter-spacing: 0.02em;
   cursor: pointer;
+  transition:
+    box-shadow 0.2s,
+    border-color 0.2s,
+    transform 0.14s;
+}
+
+.sync-chip:hover {
+  box-shadow:
+    inset 0 1px 0 var(--glass-light),
+    0 0 0 3px var(--glow-soft);
+}
+
+.sync-chip:active {
+  transform: scale(0.95);
 }
 
 .sync-chip .chip-icon {
@@ -845,9 +1320,14 @@ button.tree-toggle {
   color: var(--ok);
 }
 
+.sync-chip[data-state='ok'] svg {
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--ok) 50%, transparent));
+}
+
 .sync-chip[data-state='pending'],
 .sync-chip[data-state='syncing'] {
   color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .sync-chip[data-state='syncing'] svg {
@@ -857,29 +1337,18 @@ button.tree-toggle {
 .sync-chip[data-state='error'],
 .sync-chip[data-state='signedOut'] {
   color: var(--danger);
-  border-color: color-mix(in srgb, var(--danger) 45%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
 
 .sync-chip.compact {
   padding: 0 9px;
   border-color: transparent;
   background: transparent;
+  box-shadow: none;
 }
 
 .sync-chip.compact .chip-label {
   display: none;
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sync-chip[data-state='syncing'] svg {
-    animation: none;
-  }
 }
 
 /* ---------- Popovers ---------- */
@@ -887,16 +1356,23 @@ button.tree-toggle {
 .popover {
   position: fixed;
   z-index: 30;
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border: 1px solid var(--glass-line);
   border-radius: 8px;
-  box-shadow: var(--shadow);
+  box-shadow:
+    inset 0 1px 0 var(--glass-light),
+    var(--shadow),
+    0 0 30px -10px var(--glow);
+  /* Its place is measured as it opens: it may fade and glide, never change size. */
+  animation: drop 0.2s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 }
 
 .menu {
   display: flex;
   flex-direction: column;
-  min-width: 190px;
+  min-width: 200px;
   padding: 5px;
 }
 
@@ -911,14 +1387,39 @@ button.tree-toggle {
   background: none;
   text-align: left;
   cursor: pointer;
+  transition:
+    background 0.14s,
+    color 0.14s,
+    padding 0.18s;
+  animation: rise-small 0.24s backwards;
+}
+
+.menu button:nth-child(2) {
+  animation-delay: 0.025s;
+}
+.menu button:nth-child(3) {
+  animation-delay: 0.05s;
+}
+.menu button:nth-child(4) {
+  animation-delay: 0.075s;
+}
+.menu button:nth-child(n + 5) {
+  animation-delay: 0.1s;
 }
 
 .menu button:hover {
   background: var(--hover);
+  color: var(--accent);
+  padding-left: 15px;
 }
 
-.menu button.danger {
+.menu button.danger,
+.menu button.danger:hover {
   color: var(--danger);
+}
+
+.menu button.danger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
 .menu button.selected {
@@ -942,7 +1443,7 @@ button.tree-toggle {
 
 .theme-menu .check {
   min-height: 48px;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--glass-line);
 }
 
 .theme-menu p {
@@ -953,6 +1454,12 @@ button.tree-toggle {
 .sync-details {
   width: min(320px, calc(100vw - 16px));
   padding: 14px;
+}
+
+.sync-details strong {
+  font-family: var(--font-title);
+  font-size: 15px;
+  letter-spacing: 0.02em;
 }
 
 .sync-details p {
@@ -987,12 +1494,25 @@ button.tree-toggle {
   padding: 0;
   border: 2px solid var(--surface);
   border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(20, 16, 40, 0.22);
+  box-shadow: 0 0 0 1px rgba(120, 100, 160, 0.4);
   cursor: pointer;
+  transition:
+    transform 0.18s cubic-bezier(0.3, 1.6, 0.5, 1),
+    box-shadow 0.18s;
+}
+
+.swatch:hover {
+  transform: scale(1.14);
+}
+
+.swatch:active {
+  transform: scale(0.9);
 }
 
 .swatch.selected {
-  box-shadow: 0 0 0 2px var(--accent);
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 0 12px var(--glow);
 }
 
 .swatch.custom {
@@ -1017,7 +1537,7 @@ button.tree-toggle {
 .check input {
   width: 20px;
   height: 20px;
-  accent-color: var(--accent);
+  accent-color: var(--accent-fill);
 }
 
 .slider {
@@ -1030,13 +1550,14 @@ button.tree-toggle {
 
 .slider input {
   width: 100%;
-  accent-color: var(--accent);
+  accent-color: var(--accent-fill);
   min-height: 30px;
 }
 
 .slider-value {
   text-align: right;
   color: var(--muted);
+  font-family: var(--font-title);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1044,8 +1565,8 @@ button.tree-toggle {
   display: inline-flex;
   padding: 2px;
   border-radius: var(--radius);
-  background: var(--panel);
-  border: 1px solid var(--line);
+  background: var(--field);
+  border: 1px solid var(--glass-line);
 }
 
 .segmented button {
@@ -1056,11 +1577,17 @@ button.tree-toggle {
   background: none;
   color: var(--muted);
   cursor: pointer;
+  transition:
+    background 0.18s,
+    color 0.18s,
+    box-shadow 0.18s;
 }
 
 .segmented button.selected {
-  background: var(--surface);
-  box-shadow: 0 0 0 1px var(--line);
+  background: var(--accent-soft);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 0 12px var(--glow-soft);
   color: var(--accent);
   font-weight: 600;
 }
@@ -1068,35 +1595,62 @@ button.tree-toggle {
 /* ---------- Dialogs ---------- */
 
 .dialog {
-  background: var(--surface);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
   width: min(460px, calc(100vw - 24px));
   max-height: calc(100vh - 24px);
   padding: 20px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: 10px;
-  box-shadow: var(--shadow);
+  box-shadow:
+    inset 0 1px 0 var(--glass-light),
+    var(--shadow),
+    0 0 60px -20px var(--glow);
   color: var(--text);
   overflow-y: auto;
 }
 
-.dialog::backdrop {
-  background: rgba(10, 8, 20, 0.45);
+.dialog[open] {
+  animation: dialog-in 0.26s cubic-bezier(0.2, 0.9, 0.3, 1.1) backwards;
 }
 
+.dialog::backdrop {
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  animation: fade 0.24s backwards;
+}
+
+/* The title of a dialog, underlined by a line of light. */
 .dialog h2 {
-  margin: 0 0 16px;
-  font-size: 17px;
+  position: relative;
+  margin: 0 0 18px;
+  padding-bottom: 12px;
+  font-family: var(--font-title);
+  font-size: 18px;
   font-weight: 650;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.02em;
+}
+
+.dialog h2::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--accent), var(--glass-line) 38%, transparent);
 }
 
 .dialog h3 {
   margin: 0 0 8px;
+  font-family: var(--font-title);
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: 650;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--accent);
 }
 
 .dialog-text {
@@ -1138,13 +1692,21 @@ button.tree-toggle {
 }
 
 .settings-section {
-  padding: 14px 0;
-  border-top: 1px solid var(--line);
+  margin-bottom: 12px;
+  padding: 14px;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: inset 0 1px 0 var(--glass-light);
+  animation: rise-small 0.3s backwards;
 }
 
-.settings-section:first-of-type {
-  border-top: 0;
-  padding-top: 0;
+.settings-section:nth-of-type(2) {
+  animation-delay: 0.05s;
+}
+
+.settings-section:nth-of-type(3) {
+  animation-delay: 0.1s;
 }
 
 .settings-section p {
@@ -1160,7 +1722,32 @@ button.tree-toggle {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding: 2px 2px 6px;
+  padding: 4px 4px 8px;
+}
+
+.cover-tile,
+.bg-tile {
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius);
+  background: var(--card);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    transform 0.18s cubic-bezier(0.3, 1.5, 0.5, 1),
+    border-color 0.18s,
+    box-shadow 0.18s,
+    background 0.18s;
+}
+
+.cover-tile:hover,
+.bg-tile:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.cover-tile:active,
+.bg-tile:active {
+  transform: scale(0.95);
 }
 
 .cover-tile {
@@ -1170,16 +1757,14 @@ button.tree-toggle {
   gap: 5px;
   flex: none;
   padding: 7px 6px 6px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  font-size: 12.5px;
-  cursor: pointer;
 }
 
-.cover-tile.selected {
+.cover-tile.selected,
+.bg-tile.selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 16px var(--glow-soft);
   background: var(--accent-soft);
 }
 
@@ -1214,7 +1799,9 @@ button.tree-toggle {
 
 .cover-colors {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  max-width: 250px;
 }
 
 .pages-panel .btn.wide + .btn.wide {
@@ -1232,21 +1819,9 @@ button.tree-toggle {
   justify-items: center;
   gap: 5px;
   padding: 8px 2px 6px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface);
-  font-size: 12.5px;
-  cursor: pointer;
 }
 
-.bg-tile.selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-  background: var(--accent-soft);
-}
-
-.bg-tile .bg-seyes,
-.card .bg-seyes {
+.bg-tile .bg-seyes {
   background-image: linear-gradient(90deg, transparent 22%, #e59aa6 22%, #e59aa6 calc(22% + 1px), transparent calc(22% + 1px)), linear-gradient(#b7bde6 1px, transparent 1px),
     linear-gradient(#e3e5f5 1px, transparent 1px), linear-gradient(90deg, #b7bde6 1px, transparent 1px);
 }
@@ -1258,12 +1833,110 @@ button.tree-toggle {
   box-shadow: 0 0 0 1px rgba(20, 16, 40, 0.16);
 }
 
+/* Colour and symbol of a folder or of a notebook */
+
+.look-name {
+  margin: -8px 0 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.look-picker {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+
+/* The icon as it will look, on a small stage lit from above. */
+.look-preview {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(110px 70px at 50% 0, var(--glow-soft), transparent),
+    linear-gradient(var(--glass-line) 1px, transparent 1px) 0 -1px / 100% 18px,
+    linear-gradient(90deg, var(--glass-line) 1px, transparent 1px) -1px 0 / 18px 100%,
+    var(--card);
+  box-shadow: inset 0 1px 0 var(--glass-light);
+}
+
+.look-preview .art svg {
+  width: 96px;
+  height: 96px;
+  animation: pop 0.3s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+.look-colors {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 32px);
+  gap: 9px;
+}
+
+.look-symbols {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  gap: 6px;
+}
+
+.symbol {
+  display: grid;
+  place-items: center;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--glass-line);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--icon);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition:
+    transform 0.18s cubic-bezier(0.3, 1.5, 0.5, 1),
+    border-color 0.18s,
+    color 0.18s,
+    box-shadow 0.18s;
+}
+
+.symbol:hover {
+  transform: translateY(-2px);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.symbol.selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 14px var(--glow-soft);
+}
+
+.field.inline.look-own {
+  margin-bottom: 0;
+}
+
+.field.inline.look-own > span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.field.inline .look-emoji {
+  width: 62px;
+  font-size: 18px;
+  text-align: center;
+}
+
 .move-list {
   display: grid;
   max-height: 50vh;
   overflow-y: auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: var(--radius);
+  background: var(--card);
 }
 
 .move-row {
@@ -1273,10 +1946,11 @@ button.tree-toggle {
   min-height: 44px;
   padding-right: 12px;
   border: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--glass-line);
   background: none;
   text-align: left;
   cursor: pointer;
+  transition: background 0.14s;
 }
 
 .move-row:last-child {
@@ -1307,13 +1981,18 @@ button.tree-toggle {
 
 .toast {
   max-width: 520px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
+  padding: 10px 16px;
+  border: 1px solid rgba(178, 140, 248, 0.35);
   border-radius: var(--radius);
   background: var(--toast);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
   color: #fff;
-  box-shadow: var(--shadow);
+  box-shadow:
+    var(--shadow),
+    0 0 24px -6px var(--glow);
   font-size: 14px;
+  animation: toast-in 0.34s cubic-bezier(0.2, 0.9, 0.3, 1.2) backwards;
 }
 
 /* ---------- Writing screen ---------- */
@@ -1325,6 +2004,8 @@ button.tree-toggle {
 }
 
 .toolbar {
+  position: relative;
+  z-index: 6;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -1333,9 +2014,22 @@ button.tree-toggle {
   padding: 0 6px;
   padding-left: max(6px, env(safe-area-inset-left));
   padding-right: max(6px, env(safe-area-inset-right));
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--glass-light), transparent), var(--glass);
+  border-bottom: 1px solid var(--glass-line);
+  box-shadow: 0 6px 22px -14px var(--glow);
   overflow: hidden;
+  animation: slide-down 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+}
+
+.toolbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--hairline);
+  pointer-events: none;
 }
 
 .editor-title {
@@ -1346,14 +2040,17 @@ button.tree-toggle {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
+  font-family: var(--font-title);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
 }
 
 .tools {
   display: flex;
   gap: 2px;
   padding: 0 4px;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--glass-line);
 }
 
 .tool-dot {
@@ -1364,6 +2061,13 @@ button.tree-toggle {
   height: 3px;
   margin-left: -7px;
   border-radius: 2px;
+  transition: width 0.2s, margin 0.2s;
+}
+
+.icon-btn.active .tool-dot {
+  width: 20px;
+  margin-left: -10px;
+  box-shadow: 0 0 8px currentColor;
 }
 
 .quick {
@@ -1371,7 +2075,7 @@ button.tree-toggle {
   align-items: center;
   gap: 5px;
   padding: 0 8px;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--glass-line);
 }
 
 .quick .swatch {
@@ -1384,7 +2088,7 @@ button.tree-toggle {
   width: 1px;
   height: 22px;
   margin: 0 5px;
-  background: var(--line);
+  background: var(--glass-line);
 }
 
 .quick .width {
@@ -1397,10 +2101,18 @@ button.tree-toggle {
   border-radius: var(--radius);
   background: none;
   cursor: pointer;
+  transition:
+    background 0.16s,
+    box-shadow 0.16s;
+}
+
+.quick .width:hover {
+  background: var(--hover);
 }
 
 .quick .width.selected {
   background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
 .quick .bar {
@@ -1420,11 +2132,13 @@ button.tree-toggle {
   min-height: 0;
 }
 
+/* The writing surface stays plain: nothing here may distract from the page. */
 .stage {
   position: absolute;
   inset: 0;
   overflow: hidden;
   background: var(--stage);
+  animation: fade 0.3s backwards;
 }
 
 .thumbs {
@@ -1439,9 +2153,11 @@ button.tree-toggle {
   align-items: center;
   gap: 10px;
   overflow-y: auto;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
+  background: var(--glass);
+  border-right: 1px solid var(--glass-line);
+  box-shadow: inset -1px 0 0 var(--glass-light);
   z-index: 3;
+  animation: slide-right 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 }
 
 .with-thumbs .stage {
@@ -1464,6 +2180,11 @@ button.tree-toggle {
   border: 0;
   background: none;
   cursor: pointer;
+  transition: transform 0.18s;
+}
+
+.thumb-go:hover {
+  transform: translateY(-2px);
 }
 
 .thumb-row {
@@ -1498,6 +2219,7 @@ button.tree-toggle {
   top: 3px;
   right: 12px;
   color: var(--accent);
+  filter: drop-shadow(0 0 4px var(--glow));
 }
 
 .thumb-ribbon svg {
@@ -1523,7 +2245,8 @@ button.tree-toggle {
   width: 96px;
   height: 3px;
   border-radius: 2px;
-  background: var(--accent);
+  background: var(--fill);
+  box-shadow: 0 0 10px var(--glow);
 }
 
 .thumb.drop-here::before {
@@ -1536,13 +2259,17 @@ button.tree-toggle {
   gap: 2px;
   width: 100%;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--glass-line);
   font-size: 12.5px;
 }
 
 .bookmarks strong {
   padding: 0 4px 2px;
-  color: var(--muted);
+  color: var(--accent);
+  font-family: var(--font-title);
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .bookmark-go {
@@ -1585,6 +2312,7 @@ button.tree-toggle {
   box-shadow: 0 0 0 1px rgba(20, 16, 40, 0.16);
   border-radius: 2px;
   overflow: hidden;
+  transition: box-shadow 0.2s;
 }
 
 .thumb-page.landscape {
@@ -1601,18 +2329,22 @@ button.tree-toggle {
   min-width: 24px;
   padding: 1px 7px;
   border-radius: 4px;
+  font-family: var(--font-title);
   font-size: 12.5px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
 .thumb.current .thumb-page {
-  box-shadow: 0 0 0 2px var(--accent);
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 0 16px var(--glow);
 }
 
 .thumb.current .thumb-number {
-  background: var(--accent-fill);
+  background: var(--fill);
   color: var(--on-accent);
+  box-shadow: 0 0 10px var(--glow);
 }
 
 canvas.ink {
@@ -1621,6 +2353,7 @@ canvas.ink {
   cursor: crosshair;
 }
 
+/* Always over the page while writing: no blur here, so that the ink stays fluid. */
 .corner {
   position: absolute;
   right: 10px;
@@ -1630,9 +2363,13 @@ canvas.ink {
   align-items: center;
   gap: 4px;
   padding: 3px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: 8px;
   background: var(--float);
+  box-shadow:
+    inset 0 1px 0 var(--glass-light),
+    0 6px 20px -8px var(--glow);
+  animation: rise 0.4s 0.12s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 }
 
 .page-pill {
@@ -1642,13 +2379,20 @@ canvas.ink {
   border-radius: var(--radius);
   background: none;
   color: var(--icon);
+  font-family: var(--font-title);
   font-size: 13.5px;
+  font-weight: 550;
+  letter-spacing: 0.03em;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
+  transition:
+    background 0.16s,
+    color 0.16s;
 }
 
 .page-pill:hover {
   background: var(--hover);
+  color: var(--accent);
 }
 
 .sel-bar {
@@ -1658,10 +2402,15 @@ canvas.ink {
   align-items: center;
   gap: 4px;
   padding: 5px 7px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: 8px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  box-shadow:
+    inset 0 1px 0 var(--glass-light),
+    var(--shadow);
+  animation: fade 0.18s backwards;
 }
 
 .sel-bar .swatch {
@@ -1675,7 +2424,7 @@ canvas.ink {
   width: 1px;
   height: 24px;
   margin: 0 4px;
-  background: var(--line);
+  background: var(--glass-line);
 }
 
 .bar-hint {
@@ -1688,6 +2437,8 @@ canvas.ink {
 .sel-bar .btn {
   min-height: 38px;
   border: 0;
+  background: none;
+  box-shadow: none;
 }
 
 .pages-panel {
@@ -1697,11 +2448,16 @@ canvas.ink {
   bottom: 0;
   width: min(380px, 100%);
   padding: 10px 12px 16px;
-  background: var(--surface);
-  border-left: 1px solid var(--line);
-  box-shadow: var(--shadow);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border-left: 1px solid var(--glass-line);
+  box-shadow:
+    inset 1px 0 0 var(--glass-light),
+    var(--shadow);
   overflow-y: auto;
   z-index: 5;
+  animation: slide-left 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 }
 
 .panel-head {
@@ -1709,6 +2465,9 @@ canvas.ink {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
+  font-family: var(--font-title);
+  font-size: 16px;
+  letter-spacing: 0.02em;
 }
 
 .page-list {
@@ -1722,12 +2481,13 @@ canvas.ink {
   align-items: center;
   gap: 2px;
   padding: 4px 0 4px 4px;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--glass-line);
+  transition: background 0.16s;
 }
 
 .page-list li.current {
-  background: var(--accent-soft);
-  box-shadow: inset 2px 0 0 var(--accent);
+  background: linear-gradient(90deg, var(--accent-soft), transparent 140%);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .page-go {
@@ -1763,6 +2523,7 @@ canvas.ink {
     left: 0;
   }
   .thumbs {
+    background: var(--glass-strong);
     box-shadow: var(--shadow);
   }
   .toolbar {
@@ -1790,10 +2551,124 @@ canvas.ink {
   .bg-tiles {
     grid-template-columns: repeat(3, 1fr);
   }
+  .look-picker {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .look-preview {
+    aspect-ratio: auto;
+    height: 116px;
+  }
+  .cover-options {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (hover: none) and (pointer: coarse) {
   .corner .icon-btn {
     display: none;
+  }
+}
+
+/* ---------- Movements ---------- */
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+@keyframes rise-small {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes drop {
+  from {
+    opacity: 0;
+    translate: 0 -8px;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0.4;
+    transform: scale(0.82);
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.95);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.94);
+  }
+}
+
+@keyframes slide-right {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
+@keyframes slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(32px);
+  }
+}
+
+@keyframes slide-down {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+}
+
+@keyframes sweep {
+  from {
+    left: -60%;
+    opacity: 1;
+  }
+  to {
+    left: 130%;
+    opacity: 1;
+  }
+}
+
+@keyframes turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

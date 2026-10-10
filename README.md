@@ -32,7 +32,7 @@ recent browser on a computer.
   duplicate or delete it like any selection; ink and highlighter go over it.
 - Axes for graphs: graduated axes with an optional grid, inserted as strokes.
 - Light and dark appearance, with optional dark pages while writing.
-- New notebook dialog: name, optional cover page (six templates, six
+- New notebook dialog: name, optional cover page (ten templates, eight
   colours, subtitle), page background and orientation.
 - Page management: add (same format as the page before, or another
   background and orientation), duplicate, move, delete, change the format.
@@ -40,8 +40,11 @@ recent browser on a computer.
   to go there, drag its handle to reorder, or open its menu to add, duplicate,
   delete or bookmark the page. Bookmarks are listed at the top of the panel
   and written as real PDF bookmarks.
-- Library: each notebook shows its real first page; search by name,
-  favourites, recently opened notebooks.
+- Library: search by name, favourites, recently opened notebooks. Folders
+  have a colour and a symbol, as in OneDrive (yellow by default); notebooks
+  have a logo with a colour and a symbol (Plume violet by default), and
+  notebooks made from a PDF have a logo of their own. These choices are kept
+  in `plume-library.json` in the `Plume` folder, so every device shows them.
 - Palm rejection; scroll and zoom with fingers; mouse on a computer.
 - Every stroke saved locally at once; works offline.
 - Automatic PDF export to OneDrive, with a status indicator.
@@ -68,6 +71,7 @@ npm run build      # production build in dist/
 | `src/model.ts`, `src/db.ts` | Types and local storage (IndexedDB) |
 | `src/geometry.ts`, `src/backgrounds.ts` | Stroke shapes and backgrounds, shared by screen and PDF |
 | `src/covers.ts`, `src/axes.ts` | Cover page templates; graduated axes |
+| `src/looks.ts` | Folder and notebook icons, their colours and symbols |
 | `src/shapes.ts` | Shape recognition (line, rectangle, ellipse, curve…) |
 | `src/pdf/` | Building and reading PDFs (in a worker) |
 | `src/ui/pdfview.ts` | Display of imported PDF pages (PDF.js) |

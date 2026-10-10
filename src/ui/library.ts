@@ -2,11 +2,11 @@
 
 import { COVER_COLORS, COVER_TEMPLATES, drawCover, type Cover, type CoverTemplate } from '../covers'
 import { allNodes, kvGet, kvSet, updateNode } from '../db'
-import { createFolder, createNotebook, deleteNode, importNotebook, moveNode, pathTo, renameNode, subtree } from '../library'
-import { BACKGROUNDS, ROOT, isDirtyNotebook, pageSize, uid, type Background, type LibNode, type Orientation, type Page } from '../model'
+import { createFolder, createNotebook, deleteNode, importNotebook, moveNode, pathTo, renameNode, setLook, subtree } from '../library'
+import { DEFAULT_FOLDER_COLOR, DEFAULT_NOTEBOOK_COLOR, FOLDER_COLORS, NOTEBOOK_COLORS, SYMBOLS, firstGlyph, folderIcon, notebookIcon, symbolIcon } from '../looks'
+import { BACKGROUNDS, ROOT, isDirtyNotebook, pageSize, uid, type Background, type LibNode, type Look, type Orientation, type Page } from '../model'
 import { extractData } from '../pdf/client'
 import { dataToContent } from '../pdf/codec'
-import { firstPagePicture } from './firstpage'
 import { preparePicture } from './pictures'
 import type { SyncEngine } from '../sync/engine'
 import { openThemeMenu } from './settings'
@@ -24,11 +24,6 @@ export interface LibraryDeps {
   /** false: sync is not active (local deletion only). */
   synced(): boolean
 }
-
-/** Pictures of first pages already shown, so a redraw of the library does not blink. */
-const shown = new Map<string, { rev: number; page: string | undefined; url: string }>()
-/** Changes at each drawing of the library: pictures still being prepared for an older one are dropped. */
-let drawing = 0
 
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 
@@ -171,22 +166,124 @@ function newNotebookDialog(last: NotebookOptions): Promise<NewNotebook | null> {
   )
 }
 
+/** The icon of an item of the library, as an element. */
+function art(node: Pick<LibNode, 'kind' | 'look' | 'orient' | 'foreign' | 'fromPdf'>, filled = false, small = false): HTMLElement {
+  const svg = node.kind === 'folder' ? folderIcon(node.look, filled, { small }) : notebookIcon(node.look, node.orient, !!(node.foreign || node.fromPdf), { small })
+  return h('span', { class: `art ${small ? 'small' : ''}`, html: svg })
+}
+
+/**
+ * The choice of a colour and a symbol, with the icon as it will look.
+ * `value()` gives the look chosen (nothing in it for the default one).
+ */
+function lookPicker(sample: Pick<LibNode, 'kind' | 'orient' | 'foreign' | 'fromPdf'>, initial: Look | undefined, filled = false): { el: HTMLElement; value(): Look } {
+  const isFolder = sample.kind === 'folder'
+  const palette = isFolder ? FOLDER_COLORS : NOTEBOOK_COLORS
+  const fallback = isFolder ? DEFAULT_FOLDER_COLOR : DEFAULT_NOTEBOOK_COLOR
+  let color = initial?.color ?? fallback
+  let symbol = initial?.symbol ?? ''
+  const drawn = (id: string) => SYMBOLS.some((s) => s.id === id)
+  const preview = h('div', { class: 'look-preview' })
+  const colors = h('div', { class: 'look-colors', role: 'radiogroup', 'aria-label': 'Colour' })
+  const symbols = h('div', { class: 'look-symbols', role: 'radiogroup', 'aria-label': 'Symbol' })
+  const emoji = h('input', { type: 'text', class: 'look-emoji', maxLength: 16, autocomplete: 'off', placeholder: '😀', 'aria-label': 'Emoji', value: symbol && !drawn(symbol) ? symbol : '' })
+  const value = (): Look => ({ ...(color !== fallback ? { color } : {}), ...(symbol ? { symbol } : {}) })
+  // A notebook without a chosen symbol shows the feather of Plume.
+  const feather = !isFolder && !sample.foreign && !sample.fromPdf
+  const draw = () => {
+    preview.replaceChildren(art({ ...sample, look: value() }, filled))
+    colors.replaceChildren(
+      ...palette.map((c) =>
+        h('button', { type: 'button', role: 'radio', 'aria-checked': String(c.id === color), class: `swatch ${c.id === color ? 'selected' : ''}`, style: `background:${c.id}`, title: c.label, 'aria-label': c.label, onClick: () => ((color = c.id), draw()) }),
+      ),
+    )
+    const pick = (id: string, label: string, content: string | null) =>
+      h(
+        'button',
+        { type: 'button', role: 'radio', 'aria-checked': String(id === symbol), class: `symbol ${id === symbol ? 'selected' : ''}`, title: label, 'aria-label': label, html: content ?? undefined, onClick: () => ((symbol = id), (emoji.value = ''), draw()) },
+        content ? null : 'None',
+      )
+    symbols.replaceChildren(pick('', feather ? 'Plume feather' : 'No symbol', feather ? symbolIcon('feather') : null), ...SYMBOLS.filter((s) => !feather || s.id !== 'feather').map((s) => pick(s.id, s.label, symbolIcon(s.id))))
+  }
+  emoji.addEventListener('input', () => {
+    const glyph = firstGlyph(emoji.value)
+    if (glyph !== emoji.value) emoji.value = glyph
+    symbol = glyph
+    draw()
+  })
+  draw()
+  return {
+    el: h(
+      'div',
+      { class: 'look-picker' },
+      preview,
+      h('div', { class: 'look-choices' }, h('div', { class: 'field' }, h('span', {}, 'Colour'), colors), h('div', { class: 'field' }, h('span', {}, 'Symbol'), symbols), h('label', { class: 'field inline look-own' }, h('span', {}, 'Or an emoji of your own'), emoji)),
+    ),
+    value,
+  }
+}
+
+/** Changes the colour and the symbol of a folder, or the logo of a notebook. */
+function lookDialog(node: LibNode, filled: boolean): Promise<Look | null> {
+  return openDialog<Look>(
+    node.kind === 'folder' ? 'Folder colour' : 'Notebook logo',
+    (d) => {
+      const picker = lookPicker(node, node.look, filled)
+      return [h('p', { class: 'dialog-text muted look-name' }, node.name), picker.el, dialogButtons(button('Cancel', () => d.close(null)), button('Save', () => d.close(picker.value()), 'primary'))]
+    },
+    'wide',
+  )
+}
+
+/** A new folder: its name and, as in OneDrive, its colour. */
+function newFolderDialog(): Promise<{ name: string; look: Look } | null> {
+  return openDialog<{ name: string; look: Look }>(
+    'New folder',
+    (d) => {
+      const name = h('input', { type: 'text', maxLength: 120, autocomplete: 'off', enterKeyHint: 'done' })
+      const picker = lookPicker({ kind: 'folder' }, undefined)
+      setTimeout(() => name.focus())
+      return h(
+        'form',
+        {
+          onSubmit: (e: Event) => {
+            e.preventDefault()
+            if (name.value.trim()) d.close({ name: name.value.trim(), look: picker.value() })
+          },
+        },
+        h('label', { class: 'field' }, h('span', {}, 'Folder name'), name),
+        picker.el,
+        dialogButtons(button('Cancel', () => d.close(null)), h('button', { class: 'btn primary', type: 'submit' }, 'Create')),
+      )
+    },
+    'wide',
+  )
+}
+
+function glow(e: PointerEvent): void {
+  const card = (e.target as Element).closest?.('.card') as HTMLElement | null
+  if (!card) return
+  const r = card.getBoundingClientRect()
+  card.style.setProperty('--mx', `${e.clientX - r.left}px`)
+  card.style.setProperty('--my', `${e.clientY - r.top}px`)
+}
+
 function moveDialog(nodes: LibNode[], node: LibNode): Promise<string | null> {
   const excluded = new Set(node.kind === 'folder' ? subtree(nodes, node.id) : [])
   const rows: HTMLElement[] = []
   return openDialog<string>(`Move "${node.name}"`, (d) => {
-    const add = (id: string, name: string, depth: number) => {
+    const add = (id: string, name: string, depth: number, folder?: LibNode) => {
       rows.push(
         h(
           'button',
           { type: 'button', class: 'move-row', disabled: id === node.parentId, style: `padding-left:${12 + depth * 20}px`, onClick: () => d.close(id) },
-          h('span', { class: 'menu-icon', html: icons.folder }),
+          folder ? art(folder, nodes.some((c) => c.parentId === id), true) : h('span', { class: 'menu-icon', html: icons.home }),
           name,
           id === node.parentId ? h('span', { class: 'muted' }, ' (current location)') : null,
         ),
       )
       const kids = nodes.filter((n) => n.kind === 'folder' && n.parentId === id && !n.deleted && !excluded.has(n.id)).sort((a, b) => collator.compare(a.name, b.name))
-      for (const k of kids) add(k.id, k.name, depth + 1)
+      for (const k of kids) add(k.id, k.name, depth + 1, k)
     }
     add(ROOT, 'Plume', 0)
     return [h('div', { class: 'move-list' }, ...rows), dialogButtons(button('Cancel', () => d.close(null)))]
@@ -232,6 +329,8 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
   const notebooks = here.filter((n) => n.kind === 'notebook').sort((a, b) => collator.compare(a.name, b.name))
   const notices = await deps.engine.notices()
 
+  const hasContent = (id: string) => nodes.some((n) => n.parentId === id)
+
   const act = async (fn: () => Promise<unknown>) => {
     await fn()
     deps.changed()
@@ -256,6 +355,14 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
         },
       },
       {
+        label: node.kind === 'folder' ? 'Folder colour' : 'Notebook logo',
+        icon: icons.palette,
+        action: async () => {
+          const look = await lookDialog(node, hasContent(node.id))
+          if (look) await act(() => setLook(node.id, look))
+        },
+      },
+      {
         label: 'Move…',
         icon: icons.folder,
         action: async () => {
@@ -275,41 +382,6 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
         },
       },
     ])
-
-  const turn = ++drawing
-  const preparing = new Map<string, Promise<string | null>>()
-  /** The notebook's first page; until its picture is ready, a sheet with the notebook's ruling. */
-  const notebookCover = (node: LibNode): HTMLElement => {
-    const cover = h('div', { class: `cover paper bg-${node.bg ?? 'blank'} ${node.orient === 'landscape' ? 'landscape' : ''}` })
-    const well = h('div', { class: 'cover-well' }, cover)
-    const show = (url: string) => {
-      cover.classList.add('pictured')
-      cover.replaceChildren(h('img', { src: url, alt: '', draggable: false }))
-    }
-    const known = shown.get(node.id)
-    if (known) show(known.url)
-    if (node.foreign || (node.needsDownload && !node.pageIds?.length)) return well
-    if (known?.rev === (node.rev ?? 0) && known.page === node.pageIds?.[0]) return well
-    // A notebook can appear on several cards (favourites, recent…): its picture is prepared once.
-    let ready = preparing.get(node.id)
-    if (!ready) {
-      ready = firstPagePicture(node)
-        .then((blob) => {
-          if (!blob) return null
-          if (known) URL.revokeObjectURL(known.url)
-          const url = URL.createObjectURL(blob)
-          shown.set(node.id, { rev: node.rev ?? 0, page: node.pageIds?.[0], url })
-          return url
-        })
-        .catch((e) => {
-          console.error('First page picture', e)
-          return null
-        })
-      preparing.set(node.id, ready)
-    }
-    void ready.then((url) => url && turn === drawing && show(url))
-    return well
-  }
 
   const byId = new Map(nodes.map((n) => [n.id, n]))
   /** When the item last changed here; for a folder, the latest change of anything in it. */
@@ -389,9 +461,20 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
           itemMenu(node, more)
         },
       },
-      isFolder ? h('span', { class: 'folder-icon', html: icons.folder }) : notebookCover(node),
-      h('div', { class: 'card-text' }, h('div', { class: 'card-name' }, node.name), h('div', { class: 'card-sub' }, sub, pending ? h('span', { class: 'pending-dot', title: 'Not yet sent to OneDrive' }) : null)),
-      node.favorite ? h('span', { class: 'fav-mark', title: 'Favourite', html: icons.star }) : null,
+      h('span', { class: 'card-art' }, art(node, isFolder && hasContent(node.id))),
+      h(
+        'div',
+        { class: 'card-text' },
+        // The marks sit beside the name, never on the icon.
+        h(
+          'div',
+          { class: 'card-title' },
+          h('span', { class: 'card-name' }, node.name),
+          node.favorite ? h('span', { class: 'fav-mark', title: 'Favourite', html: icons.star }) : null,
+          pending ? h('span', { class: 'pending-dot', title: 'Not yet sent to OneDrive' }) : null,
+        ),
+        h('div', { class: 'card-sub' }, sub),
+      ),
       tile ? null : h('span', { class: 'card-date', title: `Modified ${new Date(changed).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}` }, when(changed)),
       more,
     )
@@ -422,7 +505,10 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     { class: 'crumbs', 'aria-label': 'Location' },
     h('button', { type: 'button', class: folderId === ROOT ? 'current' : '', onClick: () => deps.goTo(ROOT) }, 'Plume'),
     ...(favView ? [h('span', { class: 'crumb-sep' }, '›'), h('button', { type: 'button', class: 'current' }, 'Favourites')] : []),
-    ...pathTo(nodes, folderId).flatMap((f, i, all) => [h('span', { class: 'crumb-sep' }, '›'), h('button', { type: 'button', class: i === all.length - 1 ? 'current' : '', onClick: () => deps.goTo(f.id) }, f.name)]),
+    ...pathTo(nodes, folderId).flatMap((f, i, all) => [
+      h('span', { class: 'crumb-sep' }, '›'),
+      h('button', { type: 'button', class: i === all.length - 1 ? 'current' : '', onClick: () => deps.goTo(f.id) }, art(f, hasContent(f.id), true), h('span', { class: 'crumb-name' }, f.name)),
+    ]),
   )
 
   const empty = folders.length + notebooks.length === 0
@@ -487,6 +573,8 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
   // ---------- Folder tree ----------
 
   const allFolders = nodes.filter((n) => n.kind === 'folder')
+  // Arriving on a screen plays its entrance; a redraw of the same screen (after a sync) does not.
+  const arriving = lastFolder !== folderId || !root.querySelector(':scope > .library')
   if (lastFolder !== folderId) {
     // Arriving in a folder: the way to it is unfolded, and the tree gets out of the way on narrow screens.
     for (const f of pathTo(nodes, folderId).slice(0, -1)) unfolded.add(f.id)
@@ -494,7 +582,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     drawer = false
   }
   const tree = h('nav', { class: 'tree', 'aria-label': 'Folders' })
-  const treeRow = (id: string, name: string, depth: number, kids: LibNode[]): HTMLElement => {
+  const treeRow = (id: string, name: string, depth: number, kids: LibNode[], folder?: LibNode): HTMLElement => {
     const open = unfolded.has(id)
     return h(
       'div',
@@ -525,17 +613,17 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
             else deps.goTo(id)
           },
         },
-        h('span', { class: 'menu-icon', html: id === ROOT ? icons.home : icons.folder }),
+        folder ? art(folder, hasContent(id), true) : h('span', { class: 'menu-icon', html: icons.home }),
         h('span', { class: 'tree-name' }, name),
       ),
     )
   }
   const drawTree = (): void => {
     const rows: HTMLElement[] = []
-    const add = (id: string, name: string, depth: number) => {
+    const add = (id: string, name: string, depth: number, folder?: LibNode) => {
       const kids = allFolders.filter((n) => n.parentId === id).sort(byName)
-      rows.push(treeRow(id, name, depth, kids))
-      if (id === ROOT || unfolded.has(id)) for (const k of kids) add(k.id, k.name, depth + 1)
+      rows.push(treeRow(id, name, depth, kids, folder))
+      if (id === ROOT || unfolded.has(id)) for (const k of kids) add(k.id, k.name, depth + 1, k)
     }
     add(ROOT, 'Plume', 0)
     rows.splice(
@@ -562,7 +650,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
   const hero = h(
     'section',
     { class: 'hero' },
-    h('span', { class: 'brand-mark', html: logo }),
+    h('span', { class: 'brand-mark', html: logo() }),
     h(
       'div',
       {},
@@ -571,7 +659,8 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     ),
   )
   const themeButton = iconButton(icons.sun, 'Appearance', () => openThemeMenu(themeButton))
-  const library = h('div', { class: `library ${treeShown() ? '' : 'tree-hidden'}` })
+  // A glow follows the pointer over the cards.
+  const library = h('div', { class: `library ${treeShown() ? '' : 'tree-hidden'} ${arriving ? 'arriving' : ''}`, onPointermove: glow, onPointerdown: glow })
   /** Shows or hides the tree; on narrow screens only (`drawerOnly`), or wherever it is. */
   const setTree = (shown: boolean, drawerOnly = false): void => {
     if (narrow.matches) drawer = shown
@@ -581,7 +670,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
   }
 
   library.append(
-    h('aside', { class: 'lib-side' }, h('div', { class: 'brand' }, h('span', { class: 'brand-mark', html: logo }), h('span', { class: 'wordmark' }, 'Plume')), tree),
+    h('aside', { class: 'lib-side' }, h('div', { class: 'brand' }, h('span', { class: 'brand-mark', html: logo() }), h('span', { class: 'wordmark' }, 'Plume')), tree),
     h('div', { class: 'lib-scrim', onClick: () => setTree(false) }),
     h(
       'div',
@@ -624,8 +713,8 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
             class: 'btn',
             type: 'button',
             onClick: async () => {
-              const name = await promptDialog('New folder', 'Folder name', '', 'Create')
-              if (name) await act(() => createFolder(folderId, name))
+              const r = await newFolderDialog()
+              if (r) await act(() => createFolder(folderId, r.name, r.look))
             },
           },
           h('span', { class: 'menu-icon', html: icons.folderPlus }),
