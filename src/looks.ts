@@ -191,7 +191,7 @@ export function notebookIcon(look: Look | undefined, orient: Orientation = 'port
       : `<stop offset="0" stop-color="${top}"/><stop offset=".6" stop-color="${c}"/><stop offset="1" stop-color="${bottom}"/>`) +
     `</linearGradient>` +
     `<clipPath id="${id}c"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3.5"/></clipPath></defs>`
-  const symbol = look?.symbol ?? (pdf ? undefined : 'feather')
+  const symbol = look?.symbol
 
   if (pdf) {
     // A sheet, its corner folded, with a band that says what it is.
@@ -211,7 +211,7 @@ export function notebookIcon(look: Look | undefined, orient: Orientation = 'port
   }
 
   // A school notebook: the cover, the cloth tape of its binding, and a label where the title
-  // goes, which carries the symbol. Two thin edges on the right give it some thickness.
+  // goes, which carries the symbol if one was chosen (it stays blank otherwise). Two thin edges on the right give it some thickness.
   const spine = 6
   const tone = (plain: string, style: string) => (auto ? `style="${style}"` : plain)
   const plate = l > 0.8 ? mix(c, '#000000', 0.1) : '#ffffff'

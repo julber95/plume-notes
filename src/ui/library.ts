@@ -188,8 +188,6 @@ function lookPicker(sample: Pick<LibNode, 'kind' | 'orient' | 'foreign' | 'fromP
   const symbols = h('div', { class: 'look-symbols', role: 'radiogroup', 'aria-label': 'Symbol' })
   const emoji = h('input', { type: 'text', class: 'look-emoji', maxLength: 16, autocomplete: 'off', placeholder: '😀', 'aria-label': 'Emoji', value: symbol && !drawn(symbol) ? symbol : '' })
   const value = (): Look => ({ ...(color !== fallback ? { color } : {}), ...(symbol ? { symbol } : {}) })
-  // A notebook without a chosen symbol shows the feather of Plume.
-  const feather = !isFolder && !sample.foreign && !sample.fromPdf
   const draw = () => {
     preview.replaceChildren(art({ ...sample, look: value() }, filled))
     colors.replaceChildren(
@@ -203,7 +201,7 @@ function lookPicker(sample: Pick<LibNode, 'kind' | 'orient' | 'foreign' | 'fromP
         { type: 'button', role: 'radio', 'aria-checked': String(id === symbol), class: `symbol ${id === symbol ? 'selected' : ''}`, title: label, 'aria-label': label, html: content ?? undefined, onClick: () => ((symbol = id), (emoji.value = ''), draw()) },
         content ? null : 'None',
       )
-    symbols.replaceChildren(pick('', feather ? 'Plume feather' : 'No symbol', feather ? symbolIcon('feather') : null), ...SYMBOLS.filter((s) => !feather || s.id !== 'feather').map((s) => pick(s.id, s.label, symbolIcon(s.id))))
+    symbols.replaceChildren(pick('', 'No symbol', null), ...SYMBOLS.map((s) => pick(s.id, s.label, symbolIcon(s.id))))
   }
   emoji.addEventListener('input', () => {
     const glyph = firstGlyph(emoji.value)

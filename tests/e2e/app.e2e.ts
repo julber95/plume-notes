@@ -1193,7 +1193,7 @@ describe('Plume in the browser', () => {
     await page.getByRole('button', { name: 'Create' }).click()
     await page.locator('canvas.ink').waitFor()
     await page.getByRole('button', { name: 'Back to library' }).click()
-    // Until its logo is chosen a notebook follows the appearance (white when dark, black when light), with the feather.
+    // Until its logo is chosen a notebook follows the appearance (white when dark, black when light), its label blank.
     await expect.poll(() => art(page, 'notebook', 'Titration').innerHTML()).toContain('var(--nb-2)')
     await page.locator('.listing .card.notebook', { hasText: 'Titration' }).last().getByRole('button', { name: /Actions for/ }).click()
     await page.getByRole('menuitem', { name: 'Notebook logo' }).click()
