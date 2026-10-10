@@ -12,7 +12,8 @@ import { GraphClient } from './sync/graph'
 import { toast } from './ui/dom'
 import { applyTheme } from './ui/theme'
 import { openEditor, type EditorHandle } from './ui/editor'
-import { FAVOURITES, notOpenable, renderLibrary } from './ui/library'
+import { tidyTrash } from './library'
+import { FAVOURITES, TRASH, notOpenable, renderLibrary } from './ui/library'
 import { exportMinutes, openSettings } from './ui/settings'
 import { createSyncChip } from './ui/syncchip'
 
@@ -44,12 +45,13 @@ function login(): void {
 
 function parseRoute(): { view: 'folder' | 'notebook'; id: string } {
   if (location.hash === '#/favourites') return { view: 'folder', id: FAVOURITES }
+  if (location.hash === '#/trash') return { view: 'folder', id: TRASH }
   const m = /^#\/(f|n)\/([\w-]+)$/.exec(location.hash)
   if (!m) return { view: 'folder', id: ROOT }
   return { view: m[1] === 'n' ? 'notebook' : 'folder', id: m[2] }
 }
 
-const folderHash = (id: string) => (id === ROOT ? '#/' : id === FAVOURITES ? '#/favourites' : `#/f/${id}`)
+const folderHash = (id: string) => (id === ROOT ? '#/' : id === FAVOURITES ? '#/favourites' : id === TRASH ? '#/trash' : `#/f/${id}`)
 
 let routing = Promise.resolve()
 
@@ -174,6 +176,7 @@ async function start(): Promise<void> {
   }
   auth.onChange = () => void engine.refresh()
   await upgradeLibrary().catch((e) => console.error('Library upgrade', e))
+  await tidyTrash().catch((e) => console.error('Trash', e))
   await route()
   void armAutoExport()
   void engine.sync()

@@ -2,7 +2,7 @@
 
 import { COVER_COLORS, COVER_TEMPLATES, drawCover, type Cover, type CoverTemplate } from '../covers'
 import { allNodes, kvGet, kvSet, updateNode } from '../db'
-import { createFolder, createNotebook, deleteNode, importNotebook, moveNode, pathTo, renameNode, setLook, subtree } from '../library'
+import { TRASH_DAYS, createFolder, createNotebook, deleteNode, emptyTrash, importNotebook, moveNode, pathTo, renameNode, restoreNode, setLook, subtree, tidyTrash, trashNode, trashOf } from '../library'
 import { DEFAULT_FOLDER_COLOR, DEFAULT_NOTEBOOK_COLOR, FOLDER_COLORS, NOTEBOOK_COLORS, SYMBOLS, firstGlyph, folderIcon, notebookIcon, symbolIcon } from '../looks'
 import { BACKGROUNDS, ROOT, isDirtyNotebook, pageSize, uid, type Background, type LibNode, type Look, type Orientation, type Page } from '../model'
 import { extractData } from '../pdf/client'
@@ -32,6 +32,8 @@ const searching = { folder: '', query: '', focused: false }
 
 /** Shown in place of a folder: everything marked as a favourite, wherever it is. */
 export const FAVOURITES = '~favourites'
+/** Shown in place of a folder: what was deleted, which can still be put back. */
+export const TRASH = '~trash'
 const LONG_PRESS_MS = 500
 const TREE_KEY = 'plume.tree'
 const OPEN_KEY = 'plume.treeOpen'
@@ -319,15 +321,22 @@ async function importFile(file: File, folderId: string): Promise<LibNode | null>
 }
 
 export async function renderLibrary(root: HTMLElement, folderId: string, deps: LibraryDeps): Promise<void> {
-  const nodes = (await allNodes()).filter((n) => !n.deleted)
+  const trashView = folderId === TRASH
+  if (trashView) await tidyTrash()
+  // What is in the trash is listed nowhere but on its own screen.
+  const all = (await allNodes()).filter((n) => !n.deleted)
+  const bin = trashOf(all)
+  const thrown = new Set(bin ? subtree(all, bin.id) : [])
+  const nodes = all.filter((n) => !thrown.has(n.id))
+  const trashed = bin ? all.filter((n) => n.parentId === bin.id).sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0)) : []
   const favView = folderId === FAVOURITES
-  if (folderId !== ROOT && !favView && !nodes.some((n) => n.id === folderId && n.kind === 'folder')) return deps.goTo(ROOT)
+  if (folderId !== ROOT && !favView && !trashView && !nodes.some((n) => n.id === folderId && n.kind === 'folder')) return deps.goTo(ROOT)
   const here = nodes.filter((n) => n.parentId === folderId)
   const folders = here.filter((n) => n.kind === 'folder').sort((a, b) => collator.compare(a.name, b.name))
   const notebooks = here.filter((n) => n.kind === 'notebook').sort((a, b) => collator.compare(a.name, b.name))
   const notices = await deps.engine.notices()
 
-  const hasContent = (id: string) => nodes.some((n) => n.parentId === id)
+  const hasContent = (id: string) => all.some((n) => n.parentId === id)
 
   const act = async (fn: () => Promise<unknown>) => {
     await fn()
@@ -372,16 +381,15 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
         label: 'Delete',
         icon: icons.trash,
         danger: true,
+        // Nothing is lost at once: it goes to the trash, where it can be put back.
         action: async () => {
-          const count = subtree(nodes, node.id).filter((id) => nodes.find((n) => n.id === id)?.kind === 'notebook').length
-          const what = node.kind === 'folder' ? `The folder "${node.name}" and everything in it (${count} notebook${count === 1 ? '' : 's'})` : `The notebook "${node.name}"`
-          const where = deps.synced() && node.remoteId ? ' will be deleted from this device and from OneDrive, where a copy stays recoverable in the recycle bin for 30 days.' : ' will be permanently deleted from this device.'
-          if (await confirmDialog('Delete', `${what}${where}`, 'Delete', true)) await act(() => deleteNode(node.id))
+          await act(() => trashNode(node.id))
+          toast(`"${node.name}" was moved to the trash. It can be put back for ${TRASH_DAYS} days.`, 5000)
         },
       },
     ])
 
-  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const byId = new Map(all.map((n) => [n.id, n]))
   /** When the item last changed here; for a folder, the latest change of anything in it. */
   const modified = (node: LibNode): number =>
     node.kind === 'folder' ? Math.max(node.updatedAt, ...subtree(nodes, node.id).map((id) => byId.get(id)?.updatedAt ?? 0)) : node.updatedAt
@@ -503,6 +511,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
     { class: 'crumbs', 'aria-label': 'Location' },
     h('button', { type: 'button', class: folderId === ROOT ? 'current' : '', onClick: () => deps.goTo(ROOT) }, 'Plume'),
     ...(favView ? [h('span', { class: 'crumb-sep' }, '›'), h('button', { type: 'button', class: 'current' }, 'Favourites')] : []),
+    ...(trashView ? [h('span', { class: 'crumb-sep' }, '›'), h('button', { type: 'button', class: 'current' }, 'Trash')] : []),
     ...pathTo(nodes, folderId).flatMap((f, i, all) => [
       h('span', { class: 'crumb-sep' }, '›'),
       h('button', { type: 'button', class: i === all.length - 1 ? 'current' : '', onClick: () => deps.goTo(f.id) }, art(f, hasContent(f.id), true), h('span', { class: 'crumb-name' }, f.name)),
@@ -511,6 +520,44 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
 
   const empty = folders.length + notebooks.length === 0
   const byName = (a: LibNode, b: LibNode) => collator.compare(a.name, b.name)
+  /** A line of the trash: what it is, how long it stays, and the two ways out. */
+  const trashRow = (node: LibNode): HTMLElement => {
+    const inside = subtree(all, node.id).filter((id) => byId.get(id)?.kind === 'notebook' && id !== node.id).length
+    const left = Math.max(1, Math.ceil(TRASH_DAYS - (Date.now() - (node.trashedAt ?? Date.now())) / 86_400_000))
+    const sub = [node.kind === 'folder' ? plural(inside, 'notebook') : node.foreign ? 'External PDF' : plural(node.pageIds?.length ?? 0, 'page'), `deleted ${when(node.trashedAt ?? Date.now())}`, `${plural(left, 'day')} left`].join(' · ')
+    return h(
+      'div',
+      { class: `card trashed ${node.kind === 'folder' ? 'folder' : 'notebook'}` },
+      h('span', { class: 'card-art' }, art(node, all.some((c) => c.parentId === node.id))),
+      h('div', { class: 'card-text' }, h('div', { class: 'card-title' }, h('span', { class: 'card-name' }, node.name)), h('div', { class: 'card-sub' }, sub)),
+      h(
+        'button',
+        {
+          class: 'btn',
+          type: 'button',
+          'aria-label': `Restore ${node.name}`,
+          onClick: async () => {
+            const home = await restoreNode(node.id)
+            toast(`"${node.name}" is back in ${home ? `"${home.name}"` : 'Plume'}.`)
+            deps.changed()
+          },
+        },
+        h('span', { class: 'menu-icon', html: icons.undo }),
+        'Restore',
+      ),
+      iconButton(
+        icons.trash,
+        `Delete ${node.name} for good`,
+        async () => {
+          const what = node.kind === 'folder' ? `The folder "${node.name}" and everything in it (${plural(inside, 'notebook')})` : `The notebook "${node.name}"`
+          const where = deps.synced() && node.remoteId ? ' will be deleted from this device and from OneDrive, where a copy stays recoverable in the recycle bin for 30 days.' : ' will be permanently deleted from this device.'
+          if (await confirmDialog('Delete for good', `${what}${where}`, 'Delete', true)) await act(() => deleteNode(node.id))
+        },
+        'small danger',
+      ),
+    )
+  }
+
   /** One line per item: the folders, then the notebooks. */
   const grids = (items: LibNode[], where = false) => {
     const dirs = items.filter((n) => n.kind === 'folder')
@@ -531,6 +578,34 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
       // Search the names of everything in the library, wherever it is.
       const found = nodes.filter((n) => n.name.toLowerCase().includes(q)).sort((a, b) => (a.kind === b.kind ? byName(a, b) : a.kind === 'folder' ? -1 : 1))
       listing.replaceChildren(...(found.length ? [h('h2', { class: 'lib-section' }, `${found.length} result${found.length > 1 ? 's' : ''}`), ...grids(found, true)] : [h('p', { class: 'empty' }, `Nothing is named "${query.trim()}".`)]))
+      return
+    }
+    if (trashView) {
+      listing.replaceChildren(
+        ...(trashed.length
+          ? [
+              h(
+                'div',
+                { class: 'trash-head' },
+                h('p', { class: 'muted' }, `What you delete stays here for ${TRASH_DAYS} days, then it is deleted for good.`),
+                h(
+                  'button',
+                  {
+                    class: 'btn',
+                    type: 'button',
+                    onClick: async () => {
+                      if (await confirmDialog('Empty the trash', `${plural(trashed.length, 'item')} and everything inside will be permanently deleted${deps.synced() ? ' from this device and from OneDrive, where a copy stays recoverable in the recycle bin for 30 days' : ''}.`, 'Empty the trash', true)) await act(emptyTrash)
+                    },
+                  },
+                  h('span', { class: 'menu-icon', html: icons.trash }),
+                  'Empty the trash',
+                ),
+              ),
+              heading('In the trash', trashed.length),
+              h('div', { class: 'grid' }, ...trashed.map(trashRow)),
+            ]
+          : [h('p', { class: 'empty' }, `The trash is empty. What you delete goes here for ${TRASH_DAYS} days, in case you change your mind.`)]),
+      )
       return
     }
     if (favView) {
@@ -638,6 +713,18 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
           h('span', { class: 'tree-name' }, 'Favourites'),
         ),
       ),
+      h(
+        'div',
+        { class: `tree-row ${trashView ? 'current' : ''}`, style: 'padding-left:4px' },
+        h('span', { class: 'tree-toggle' }),
+        h(
+          'button',
+          { type: 'button', class: 'tree-go', 'aria-current': trashView ? 'page' : undefined, onClick: () => (trashView ? setTree(false, true) : deps.goTo(TRASH)) },
+          h('span', { class: 'menu-icon', html: icons.trash }),
+          h('span', { class: 'tree-name' }, 'Trash'),
+          trashed.length ? h('span', { class: 'tree-count' }, String(trashed.length)) : null,
+        ),
+      ),
     )
     tree.replaceChildren(...rows)
   }
@@ -686,7 +773,7 @@ export async function renderLibrary(root: HTMLElement, folderId: string, deps: L
       folderId === ROOT ? hero : null,
       h(
         'div',
-        { class: 'lib-actions', hidden: favView },
+        { class: 'lib-actions', hidden: favView || trashView },
         h(
           'button',
           {

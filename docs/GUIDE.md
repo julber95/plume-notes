@@ -198,5 +198,8 @@ what conditions: that is what will need adjusting.
   before being synced, Plume does not choose for you: it keeps both versions
   (one is renamed "… (conflict date time)") and shows a notice in the
   library.
-- **Deletion**: an item deleted in Plume goes to the OneDrive recycle bin,
-  where it stays recoverable for 30 days.
+- **Deletion**: an item deleted in Plume goes to the trash of Plume (in the
+  folder list, under "Favourites"), from which it can be put back for 30
+  days. In OneDrive it is simply moved to a `Trash` folder inside `Plume`.
+  Deleted from the trash, or after 30 days, it goes to the OneDrive recycle
+  bin, where it stays recoverable for 30 more days.

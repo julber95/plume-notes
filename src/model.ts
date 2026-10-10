@@ -113,6 +113,9 @@ export interface LibNode {
   favorite?: boolean
   /** When the notebook was last opened here. */
   openedAt?: number
+  /** When it was put in the trash, and the folder it was in (to put it back there). */
+  trashedAt?: number
+  trashedFrom?: string
 }
 
 export function pageSize(page: Pick<Page, 'orient' | 'w' | 'h'>): { w: number; h: number } {

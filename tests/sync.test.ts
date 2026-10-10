@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { allNodes, applyStrokeChange, closeDb, createNotebook as putNotebook, getPages, getStrokes, kvGet, kvSet, putNodes, upgradeLibrary } from '../src/db'
-import { createFolder, createNotebook, deleteNode, moveNode, renameNode, setLook } from '../src/library'
+import { createFolder, createNotebook, deleteNode, emptyTrash, moveNode, renameNode, restoreNode, setLook, tidyTrash, trashNode } from '../src/library'
 import { ROOT, type LibNode } from '../src/model'
 import { buildNotebookPdf } from '../src/pdf/build'
 import { extractPlumeData } from '../src/pdf/extract'
@@ -382,6 +382,59 @@ describe('OneDrive sync', () => {
     await freshDevice()
     await engine.sync()
     expect((await kvGet<{ presets: unknown }>('tools'))?.presets).toEqual({ pen: theirs.pen })
+  })
+
+  it('what is deleted goes to a trash shared by the devices, and can be put back', async () => {
+    const maths = await createFolder(ROOT, 'Maths')
+    const nb = await createNotebook(maths.id, 'Algebra', 'grid', 'portrait')
+    await write(nb, 3)
+    const old = await createFolder(ROOT, 'Old')
+    await createNotebook(old.id, 'Draft', 'grid', 'portrait')
+    await engine.sync()
+    await trashNode(nb.id)
+    await trashNode(old.id)
+    await engine.sync()
+    expect(engine.status.state).toBe('ok')
+    // Nothing is deleted on OneDrive: it is moved to the trash folder.
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Maths/', 'Plume/Trash/', 'Plume/Trash/Algebra.pdf', 'Plume/Trash/Old/', 'Plume/Trash/Old/Draft.pdf'])
+    // The name of the trash cannot be taken by a folder of the first screen.
+    expect((await createFolder(ROOT, 'trash')).name).toBe('trash (2)')
+    await deleteNode((await byName('trash (2)')).id)
+
+    // On another device the same items are in the trash, and can be put back from there.
+    await freshDevice()
+    await engine.sync()
+    expect(await local()).toEqual(['Maths/', 'Trash/', 'Trash/Algebra.pdf', 'Trash/Old/', 'Trash/Old/Draft.pdf'])
+    await tidyTrash()
+    expect((await byName('Algebra')).trashedAt).toBeGreaterThan(0)
+    // Where it came from is only known on the device that deleted it: here it goes back to the first screen.
+    expect(await restoreNode((await byName('Algebra')).id)).toBeUndefined()
+    await engine.sync()
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Algebra.pdf', 'Plume/Maths/', 'Plume/Trash/', 'Plume/Trash/Old/', 'Plume/Trash/Old/Draft.pdf'])
+    expect(await strokeCount(await byName('Algebra'))).toBe(3)
+
+    // Thirty days later what is still in the trash is deleted for good, on OneDrive too.
+    expect(await tidyTrash(Date.now() + 29 * 86_400_000)).toBe(false)
+    expect(await tidyTrash(Date.now() + 31 * 86_400_000)).toBe(true)
+    await engine.sync()
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Algebra.pdf', 'Plume/Maths/', 'Plume/Trash/'])
+    expect(await local()).toEqual(['Algebra.pdf', 'Maths/', 'Trash/'])
+  })
+
+  it('an item goes back to the folder it was deleted from; the trash can be emptied', async () => {
+    const maths = await createFolder(ROOT, 'Maths')
+    const nb = await createNotebook(maths.id, 'Algebra', 'grid', 'portrait')
+    const other = await createNotebook(maths.id, 'Notes', 'grid', 'portrait')
+    await trashNode(nb.id)
+    await trashNode(other.id)
+    // A notebook of the same name was created in the meantime: both are kept.
+    await createNotebook(maths.id, 'Algebra', 'grid', 'portrait')
+    expect((await restoreNode(nb.id))?.name).toBe('Maths')
+    expect(await local()).toEqual(['Maths/', 'Maths/Algebra (2).pdf', 'Maths/Algebra.pdf', 'Trash/', 'Trash/Notes.pdf'])
+    await emptyTrash()
+    expect(await local()).toEqual(['Maths/', 'Maths/Algebra (2).pdf', 'Maths/Algebra.pdf', 'Trash/'])
+    await engine.sync()
+    expect(drive.tree()).toEqual(['Plume/', 'Plume/Maths/', 'Plume/Maths/Algebra (2).pdf', 'Plume/Maths/Algebra.pdf', 'Plume/Trash/'])
   })
 
   it('reports a required sign-in or a missing configuration', async () => {

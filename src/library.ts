@@ -5,6 +5,26 @@ import { allNodes, clearNotebookContent, createNotebook as dbCreateNotebook, mut
 import type { Cover } from './covers'
 import { ROOT, mostlyPdf, sanitizeName, siblingNames, uid, uniqueName, type Background, type LibNode, type Look, type Orientation, type Page } from './model'
 
+/**
+ * The trash is an ordinary folder of the library, so that what is thrown away
+ * on one device leaves the others too and can be put back from any of them.
+ * The library never lists it among the folders.
+ */
+export const TRASH_FOLDER = 'Trash'
+/** What is in the trash is deleted for good after this many days. */
+export const TRASH_DAYS = 30
+
+const isTrash = (n: LibNode) => n.kind === 'folder' && n.parentId === ROOT && !n.deleted && n.name.toLowerCase() === TRASH_FOLDER.toLowerCase()
+
+export function trashOf(nodes: LibNode[]): LibNode | undefined {
+  return nodes.find(isTrash)
+}
+
+/** Names a new folder cannot take in `parentId`: those of its siblings, and that of the trash. */
+function takenFolderNames(nodes: Iterable<LibNode>, parentId: string, exceptId?: string): string[] {
+  return [...siblingNames(nodes, parentId, 'folder', exceptId), ...(parentId === ROOT ? [TRASH_FOLDER] : [])]
+}
+
 /** The fields recording a look chosen now (nothing for the default one). */
 function chosen(look?: Look): Partial<LibNode> {
   return look && (look.color || look.symbol) ? { look, lookAt: Date.now(), lookDirty: true } : {}
@@ -16,7 +36,7 @@ export async function createFolder(parentId: string, rawName: string, look?: Loo
   const node: LibNode = {
     id: uid(),
     kind: 'folder',
-    name: uniqueName(sanitizeName(rawName), siblingNames(nodes, parentId, 'folder')),
+    name: uniqueName(sanitizeName(rawName), takenFolderNames(nodes, parentId)),
     parentId,
     createdAt: now,
     updatedAt: now,
@@ -83,7 +103,7 @@ export function renameNode(id: string, rawName: string): Promise<void> {
     const nodes = await s.all()
     const n = nodes.find((o) => o.id === id)
     if (!n) return
-    const name = uniqueName(sanitizeName(rawName), siblingNames(nodes, n.parentId, n.kind, n.id))
+    const name = uniqueName(sanitizeName(rawName), n.kind === 'folder' ? takenFolderNames(nodes, n.parentId, n.id) : siblingNames(nodes, n.parentId, n.kind, n.id))
     if (name === n.name) return
     n.name = name
     n.metaDirty = true
@@ -124,6 +144,87 @@ export function moveNode(id: string, newParentId: string): Promise<void> {
     n.updatedAt = Date.now()
     s.put(n)
   })
+}
+
+/** Puts an item in the trash, with everything it contains. It can be put back for 30 days. */
+export function trashNode(id: string): Promise<void> {
+  return mutateNodes(async (s) => {
+    const nodes = await s.all()
+    const n = nodes.find((o) => o.id === id)
+    if (!n || n.deleted || isTrash(n)) return
+    const now = Date.now()
+    let bin = trashOf(nodes)
+    if (bin && subtree(nodes, bin.id).includes(id)) return
+    if (!bin) {
+      bin = { id: uid(), kind: 'folder', name: TRASH_FOLDER, parentId: ROOT, createdAt: now, updatedAt: now }
+      nodes.push(bin)
+      s.put(bin)
+    }
+    n.trashedFrom = n.parentId
+    n.trashedAt = now
+    n.name = uniqueName(n.name, siblingNames(nodes, bin.id, n.kind, n.id))
+    n.parentId = bin.id
+    n.metaDirty = true
+    n.favorite = false
+    s.put(n)
+  })
+}
+
+/** Takes an item out of the trash, back to the folder it was in (to the first screen if that folder is gone). */
+export async function restoreNode(id: string): Promise<LibNode | undefined> {
+  let home: LibNode | undefined
+  await mutateNodes(async (s) => {
+    const nodes = await s.all()
+    const n = nodes.find((o) => o.id === id)
+    const bin = trashOf(nodes)
+    if (!n || !bin || n.parentId !== bin.id) return
+    const gone = new Set(subtree(nodes, bin.id))
+    home = nodes.find((o) => o.id === n.trashedFrom && o.kind === 'folder' && !o.deleted && !gone.has(o.id))
+    const parentId = home?.id ?? ROOT
+    n.name = uniqueName(n.name, n.kind === 'folder' ? takenFolderNames(nodes, parentId, n.id) : siblingNames(nodes, parentId, n.kind, n.id))
+    n.parentId = parentId
+    n.trashedAt = n.trashedFrom = undefined
+    n.metaDirty = true
+    n.updatedAt = Date.now()
+    s.put(n)
+  })
+  return home
+}
+
+/** Deletes for good everything that is in the trash. */
+export async function emptyTrash(): Promise<void> {
+  const nodes = await allNodes()
+  const bin = trashOf(nodes)
+  if (!bin) return
+  for (const n of nodes) if (n.parentId === bin.id && !n.deleted) await deleteNode(n.id)
+}
+
+/**
+ * Housekeeping of the trash: what has been there for 30 days is deleted for
+ * good. An item thrown away on another device is counted from the moment it
+ * is first seen here. Returns true if something was deleted.
+ */
+export async function tidyTrash(now = Date.now()): Promise<boolean> {
+  const nodes = await allNodes()
+  const bin = trashOf(nodes)
+  if (!bin) return false
+  const expired: string[] = []
+  const unseen: string[] = []
+  for (const n of nodes) {
+    if (n.parentId !== bin.id || n.deleted) continue
+    if (!n.trashedAt) unseen.push(n.id)
+    else if (now - n.trashedAt > TRASH_DAYS * 86_400_000) expired.push(n.id)
+  }
+  if (unseen.length) {
+    await mutateNodes(async (s) => {
+      for (const id of unseen) {
+        const n = await s.get(id)
+        if (n && !n.trashedAt) s.put({ ...n, trashedAt: now })
+      }
+    })
+  }
+  for (const id of expired) await deleteNode(id)
+  return expired.length > 0
 }
 
 /** Deletes an item and all its content. */

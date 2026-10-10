@@ -13,6 +13,8 @@ recent browser on a computer.
 
 - Library of folders and notebooks, mirrored exactly in OneDrive (create,
   rename, move, delete, in both directions).
+- Trash: deleting moves the item to a `Trash` folder shared by the devices;
+  it can be put back for 30 days, then it is deleted for good.
 - A4 pages, portrait or landscape, with blank, lined, grid, dotted and Seyès
   backgrounds.
 - Pressure-sensitive pen, pencil with a graphite grain, highlighter (under
