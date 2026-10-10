@@ -53,6 +53,8 @@
   --nb-ink: #ffffff;
   --nb-rim: #000000;
   --nb-band: rgba(255, 255, 255, 0.14);
+  --nb-pages: #dedbe8;
+  --nb-ribbon: #4f0599;
   color-scheme: light;
 }
 
@@ -103,6 +105,8 @@
   --nb-ink: #4f0599;
   --nb-rim: #ffffff;
   --nb-band: rgba(60, 20, 120, 0.14);
+  --nb-pages: #b7abd6;
+  --nb-ribbon: #8c40ef;
   color-scheme: dark;
 }
 
