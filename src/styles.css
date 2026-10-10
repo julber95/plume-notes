@@ -46,15 +46,16 @@
   --dot: rgba(79, 5, 153, 0.07);
   --barb: 0.3;
   --scrim: rgba(40, 20, 80, 0.28);
-  /* A notebook without a chosen colour: black on a light screen. */
-  --nb-1: #45424f;
-  --nb-2: #1b1a21;
+  /* A notebook without a chosen colour: black on a light screen, with a white label. */
+  --nb-1: #4a4755;
+  --nb-2: #1f1e26;
   --nb-3: #0c0b10;
-  --nb-ink: #ffffff;
+  --nb-ink: #1b1a21;
   --nb-rim: #000000;
-  --nb-band: rgba(255, 255, 255, 0.14);
+  --nb-tape: #000000;
+  --nb-label: #ffffff;
+  --nb-line: #ffffff;
   --nb-pages: #dedbe8;
-  --nb-ribbon: #4f0599;
   color-scheme: light;
 }
 
@@ -98,15 +99,16 @@
   --dot: rgba(178, 140, 248, 0.07);
   --barb: 0.4;
   --scrim: rgba(6, 4, 14, 0.6);
-  /* And white on a dark one, with the feather in violet. */
+  /* And white on a dark one, with a violet label. */
   --nb-1: #ffffff;
   --nb-2: #f3f0fa;
   --nb-3: #d8d0ea;
-  --nb-ink: #4f0599;
+  --nb-ink: #ffffff;
   --nb-rim: #ffffff;
-  --nb-band: rgba(60, 20, 120, 0.14);
+  --nb-tape: #2a1e45;
+  --nb-label: #5a0cae;
+  --nb-line: #4f0599;
   --nb-pages: #b7abd6;
-  --nb-ribbon: #8c40ef;
   color-scheme: dark;
 }
 

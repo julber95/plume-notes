@@ -190,7 +190,7 @@ export function notebookIcon(look: Look | undefined, orient: Orientation = 'port
       ? `<stop offset="0" style="stop-color:var(--nb-1)"/><stop offset=".6" style="stop-color:var(--nb-2)"/><stop offset="1" style="stop-color:var(--nb-3)"/>`
       : `<stop offset="0" stop-color="${top}"/><stop offset=".6" stop-color="${c}"/><stop offset="1" stop-color="${bottom}"/>`) +
     `</linearGradient>` +
-    `<clipPath id="${id}c"><rect x="${x}" y="${y}" width="${w}" height="${h - 1.8}" rx="3.5"/></clipPath></defs>`
+    `<clipPath id="${id}c"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3.5"/></clipPath></defs>`
   const symbol = look?.symbol ?? (pdf ? undefined : 'feather')
 
   if (pdf) {
@@ -210,21 +210,31 @@ export function notebookIcon(look: Look | undefined, orient: Orientation = 'port
     )
   }
 
-  // A notebook as one holds it: the edge of its pages, the cover, the band of its binding,
-  // the elastic that keeps it shut, a ribbon marking a page, and the symbol.
-  const spine = 5.5
-  const strap = 2.6
-  const sx = x + w - 6.5
-  const tone = (light: string, style: string) => (auto ? `style="${style}"` : light)
-  const dark = l > 0.62 ? 'fill="#000000" opacity=".16"' : 'fill="#000000" opacity=".24"'
-  const pages = opts.small ? '' : `<rect x="${x + 2.5}" y="${y + 2}" width="${w - 1}" height="${h - 2.2}" rx="2.5" ${tone(`fill="${mix(c, '#ffffff', 0.82)}"`, 'fill:var(--nb-pages)')}/>`
-  const ribbon = opts.small ? '' : `<path d="M${x + w * 0.3} ${y + h - 2}v6.5l1.9-1.6 1.9 1.6v-6.5z" ${tone(`fill="${mix(c, '#000000', 0.3)}"`, 'fill:var(--nb-ribbon)')}/>`
-  const cover = `<rect x="${x}" y="${y}" width="${w}" height="${h - 1.8}" rx="3.5" fill="url(#${id})"/>`
-  const bands =
-    `<g clip-path="url(#${id}c)"><rect x="${x}" y="${y}" width="${spine}" height="${h}" ${tone(dark, 'fill:var(--nb-band)')}/>` +
-    `<rect x="${sx}" y="${y}" width="${strap}" height="${h}" ${tone(dark, 'fill:var(--nb-band)')}/></g>`
-  const cx = x + spine + (sx - x - spine) / 2
-  const emblem = opts.small ? '' : symbolMark(symbol, cx, y + (h - 1.8) / 2, wide ? 15 : 13.5, ink)
-  const edge = `<rect x="${x + 0.5}" y="${y + 0.5}" width="${w - 1}" height="${h - 2.8}" rx="3" fill="none" ${auto ? 'style="stroke:var(--nb-rim)"' : `stroke="${rim}"`} stroke-opacity=".55" stroke-width="1"/>`
-  return `<svg class="lib-icon notebook-art ${wide ? 'landscape' : ''} ${auto ? 'auto' : ''}" viewBox="0 0 48 48" aria-hidden="true">${defs}${ribbon}${pages}${cover}${bands}${edge}${emblem}</svg>`
+  // A school notebook: the cover, the cloth tape of its binding, and a label where the title
+  // goes, which carries the symbol. Two thin edges on the right give it some thickness.
+  const spine = 6
+  const tone = (plain: string, style: string) => (auto ? `style="${style}"` : plain)
+  const plate = l > 0.8 ? mix(c, '#000000', 0.1) : '#ffffff'
+  const mark = auto ? 'currentColor' : mix(c, '#000000', l > 0.5 ? 0.62 : 0.28)
+  const pw = wide ? 23 : w - spine - 6
+  const ph = wide ? 15 : 17
+  const px = x + spine + (w - spine - pw) / 2
+  const py = wide ? y + 5 : y + 6.5
+  const edges = opts.small
+    ? ''
+    : `<rect x="${x + 3}" y="${y + 2.4}" width="${w}" height="${h - 4.8}" rx="2.5" ${tone(`fill="${mix(c, '#000000', 0.34)}"`, 'fill:var(--nb-3)')} opacity=".55"/>` +
+      `<rect x="${x + 1.5}" y="${y + 1.2}" width="${w}" height="${h - 2.4}" rx="3" ${tone(`fill="${mix(c, '#ffffff', 0.8)}"`, 'fill:var(--nb-pages)')}/>`
+  const cover = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3.5" fill="url(#${id})"/>`
+  const tape =
+    `<g clip-path="url(#${id}c)"><rect x="${x}" y="${y}" width="${spine}" height="${h}" ${tone(`fill="${mix(c, '#000000', l > 0.8 ? 0.3 : 0.45)}"`, 'fill:var(--nb-tape)')}/>` +
+    `<rect x="${x + spine}" y="${y}" width=".9" height="${h}" fill="#ffffff" opacity=".28"/></g>`
+  const label = `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" rx="2.2" ${tone(`fill="${plate}"`, 'fill:var(--nb-label)')}/>`
+  const lines = opts.small
+    ? ''
+    : (wide ? [py + ph + 4.5] : [py + ph + 5, py + ph + 9.5])
+        .map((ly, i) => `<path d="M${px} ${ly}h${pw * (i ? 0.6 : 1)}" ${tone(`stroke="${ink}"`, 'stroke:var(--nb-line)')} stroke-opacity=".5" stroke-width="1.4" stroke-linecap="round" fill="none"/>`)
+        .join('')
+  const emblem = opts.small ? '' : symbolMark(symbol, px + pw / 2, py + ph / 2, wide ? 11.5 : 12.5, mark)
+  const edge = `<rect x="${x + 0.5}" y="${y + 0.5}" width="${w - 1}" height="${h - 1}" rx="3" fill="none" ${auto ? 'style="stroke:var(--nb-rim)"' : `stroke="${rim}"`} stroke-opacity=".45" stroke-width="1"/>`
+  return `<svg class="lib-icon notebook-art ${wide ? 'landscape' : ''} ${auto ? 'auto' : ''}" viewBox="0 0 48 48" aria-hidden="true">${defs}${edges}${cover}${tape}${edge}${label}${lines}${emblem}</svg>`
 }
