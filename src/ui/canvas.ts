@@ -1961,7 +1961,8 @@ export class InkCanvas {
   }
 
   private zoomAt(sx: number, sy: number, factor: number): void {
-    const min = Math.min(this.fitZoom(), 1) * 0.5
+    // Zooming out stops a little beyond the whole width of the page.
+    const min = Math.min(this.fitZoom(), 2.4) * 0.85
     const next = Math.min(MAX_ZOOM, Math.max(min, this.zoom * factor))
     const k = next / this.zoom
     this.tx = sx - (sx - this.tx) * k

@@ -194,7 +194,7 @@ function lookPicker(sample: Pick<LibNode, 'kind' | 'orient' | 'foreign' | 'fromP
     preview.replaceChildren(art({ ...sample, look: value() }, filled))
     colors.replaceChildren(
       ...palette.map((c) =>
-        h('button', { type: 'button', role: 'radio', 'aria-checked': String(c.id === color), class: `swatch ${c.id === color ? 'selected' : ''}`, style: `--c:${c.id}`, title: c.label, 'aria-label': c.label, onClick: () => ((color = c.id), draw()) }),
+        h('button', { type: 'button', role: 'radio', 'aria-checked': String(c.id === color), class: `swatch ${c.id === color ? 'selected' : ''} ${c.id.startsWith('#') ? '' : 'auto'}`, style: c.id.startsWith('#') ? `--c:${c.id}` : '', title: c.label, 'aria-label': c.label, onClick: () => ((color = c.id), draw()) }),
       ),
     )
     const pick = (id: string, label: string, content: string | null) =>

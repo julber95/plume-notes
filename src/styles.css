@@ -46,6 +46,13 @@
   --dot: rgba(79, 5, 153, 0.07);
   --barb: 0.3;
   --scrim: rgba(40, 20, 80, 0.28);
+  /* A notebook without a chosen colour: black on a light screen. */
+  --nb-1: #45424f;
+  --nb-2: #1b1a21;
+  --nb-3: #0c0b10;
+  --nb-ink: #ffffff;
+  --nb-rim: #000000;
+  --nb-band: rgba(255, 255, 255, 0.14);
   color-scheme: light;
 }
 
@@ -89,6 +96,13 @@
   --dot: rgba(178, 140, 248, 0.07);
   --barb: 0.4;
   --scrim: rgba(6, 4, 14, 0.6);
+  /* And white on a dark one, with the feather in violet. */
+  --nb-1: #ffffff;
+  --nb-2: #f3f0fa;
+  --nb-3: #d8d0ea;
+  --nb-ink: #4f0599;
+  --nb-rim: #ffffff;
+  --nb-band: rgba(60, 20, 120, 0.14);
   color-scheme: dark;
 }
 
@@ -1508,6 +1522,15 @@ button.tree-toggle {
   border-radius: 50%;
   /* Its colour drawn towards the text colour, so that black shows on dark and white on light. */
   border: 2px solid color-mix(in srgb, var(--c, var(--accent)) 62%, var(--text));
+}
+
+.notebook-art.auto {
+  color: var(--nb-ink);
+}
+
+/* The automatic colour: half white, half black. */
+.swatch.auto {
+  background: linear-gradient(135deg, #f3f0fa 50%, #1b1a21 50%);
 }
 
 .swatch.custom {

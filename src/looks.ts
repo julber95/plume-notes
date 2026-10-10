@@ -26,8 +26,12 @@ export const FOLDER_COLORS: { id: string; label: string }[] = [
 
 export const DEFAULT_FOLDER_COLOR = FOLDER_COLORS[0].id
 
-/** Notebook colours: the violets of Plume first, with white and black, then the folder colours. */
+/** The notebook follows the appearance: white on a dark screen, black on a light one. */
+export const AUTO_COLOR = 'auto'
+
+/** Notebook colours: the automatic one, the violets of Plume, white and black, then the folder colours. */
 export const NOTEBOOK_COLORS: { id: string; label: string }[] = [
+  { id: AUTO_COLOR, label: 'Automatic' },
   { id: '#4f0599', label: 'Plume violet' },
   { id: '#8c40ef', label: 'Bright violet' },
   { id: '#b28cf8', label: 'Soft violet' },
@@ -164,10 +168,13 @@ export function folderIcon(look: Look | undefined, filled = false, opts: IconOpt
  * `pdf`: a sheet with a folded corner instead, for a notebook that came from a PDF.
  */
 export function notebookIcon(look: Look | undefined, orient: Orientation = 'portrait', pdf = false, opts: IconOptions = {}): string {
-  const c = isHex(look?.color) ? look.color : DEFAULT_NOTEBOOK_COLOR
+  // Without a chosen colour the cover takes its colours from the appearance (see --nb-* in the styles);
+  // the sheet of a PDF keeps the violet of Plume.
+  const auto = !isHex(look?.color) && !pdf
+  const c = isHex(look?.color) ? look.color : '#4f0599'
   const id = `nb${++serial}`
   const l = lightness(c)
-  const ink = l > 0.62 ? mix(c, '#000000', 0.7) : '#ffffff'
+  const ink = auto ? 'currentColor' : l > 0.62 ? mix(c, '#000000', 0.7) : '#ffffff'
   // On a dark screen a dark cover needs a clear edge, and a white one on a light screen.
   const rim = l > 0.8 ? mix(c, '#000000', 0.22) : mix(c, '#ffffff', 0.42)
   const wide = orient === 'landscape'
@@ -178,7 +185,11 @@ export function notebookIcon(look: Look | undefined, orient: Orientation = 'port
   const top = mix(c, '#ffffff', l < 0.25 ? 0.42 : 0.26)
   const bottom = mix(c, '#000000', 0.18)
   const defs =
-    `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${top}"/><stop offset=".6" stop-color="${c}"/><stop offset="1" stop-color="${bottom}"/></linearGradient>` +
+    `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1">` +
+    (auto
+      ? `<stop offset="0" style="stop-color:var(--nb-1)"/><stop offset=".6" style="stop-color:var(--nb-2)"/><stop offset="1" style="stop-color:var(--nb-3)"/>`
+      : `<stop offset="0" stop-color="${top}"/><stop offset=".6" stop-color="${c}"/><stop offset="1" stop-color="${bottom}"/>`) +
+    `</linearGradient>` +
     `<clipPath id="${id}c"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3.5"/></clipPath></defs>`
   const symbol = look?.symbol ?? (pdf ? undefined : 'feather')
 
@@ -202,9 +213,11 @@ export function notebookIcon(look: Look | undefined, orient: Orientation = 'port
   // Kept plain: a cover, the band of its binding, and the symbol.
   const spine = 5.5
   const cover = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3.5" fill="url(#${id})"/>`
-  const binding = `<rect x="${x}" y="${y}" width="${spine}" height="${h}" fill="#000000" opacity=".22" clip-path="url(#${id}c)"/>`
+  const binding = auto
+    ? `<rect x="${x}" y="${y}" width="${spine}" height="${h}" style="fill:var(--nb-band)" clip-path="url(#${id}c)"/>`
+    : `<rect x="${x}" y="${y}" width="${spine}" height="${h}" fill="#000000" opacity=".22" clip-path="url(#${id}c)"/>`
   const cx = x + spine + (w - spine) / 2
   const emblem = opts.small ? '' : symbolMark(symbol, cx, y + h / 2, wide ? 16 : 15, ink)
-  const edge = `<rect x="${x + 0.5}" y="${y + 0.5}" width="${w - 1}" height="${h - 1}" rx="3" fill="none" stroke="${rim}" stroke-opacity=".55" stroke-width="1"/>`
-  return `<svg class="lib-icon notebook-art ${wide ? 'landscape' : ''}" viewBox="0 0 48 48" aria-hidden="true">${defs}${cover}${binding}${edge}${emblem}</svg>`
+  const edge = `<rect x="${x + 0.5}" y="${y + 0.5}" width="${w - 1}" height="${h - 1}" rx="3" fill="none" ${auto ? 'style="stroke:var(--nb-rim)"' : `stroke="${rim}"`} stroke-opacity=".55" stroke-width="1"/>`
+  return `<svg class="lib-icon notebook-art ${wide ? 'landscape' : ''} ${auto ? 'auto' : ''}" viewBox="0 0 48 48" aria-hidden="true">${defs}${cover}${binding}${edge}${emblem}</svg>`
 }
