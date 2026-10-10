@@ -210,31 +210,17 @@ export function notebookIcon(look: Look | undefined, orient: Orientation = 'port
     )
   }
 
-  // A school notebook: the cover, the cloth tape of its binding, and a label where the title
-  // goes, which carries the symbol if one was chosen (it stays blank otherwise). Two thin edges on the right give it some thickness.
-  const spine = 6
+  // A plain cover with the cloth tape of its binding, the edge of the pages on the right, and
+  // a wide ribbon marking a page, hanging over the top.
+  const spine = 5
   const tone = (plain: string, style: string) => (auto ? `style="${style}"` : plain)
-  const plate = l > 0.8 ? mix(c, '#000000', 0.1) : '#ffffff'
-  const mark = auto ? 'currentColor' : mix(c, '#000000', l > 0.5 ? 0.62 : 0.28)
-  const pw = wide ? 23 : w - spine - 6
-  const ph = wide ? 15 : 17
-  const px = x + spine + (w - spine - pw) / 2
-  const py = wide ? y + 5 : y + 6.5
-  const edges = opts.small
-    ? ''
-    : `<rect x="${x + 3}" y="${y + 2.4}" width="${w}" height="${h - 4.8}" rx="2.5" ${tone(`fill="${mix(c, '#000000', 0.34)}"`, 'fill:var(--nb-3)')} opacity=".55"/>` +
-      `<rect x="${x + 1.5}" y="${y + 1.2}" width="${w}" height="${h - 2.4}" rx="3" ${tone(`fill="${mix(c, '#ffffff', 0.8)}"`, 'fill:var(--nb-pages)')}/>`
+  const rx = x + w - 10
+  const pages = opts.small ? '' : `<rect x="${x + 1.5}" y="${y + 1.2}" width="${w}" height="${h - 2.4}" rx="3" ${tone(`fill="${mix(c, '#ffffff', 0.8)}"`, 'fill:var(--nb-pages)')}/>`
   const cover = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3.5" fill="url(#${id})"/>`
-  const tape =
-    `<g clip-path="url(#${id}c)"><rect x="${x}" y="${y}" width="${spine}" height="${h}" ${tone(`fill="${mix(c, '#000000', l > 0.8 ? 0.3 : 0.45)}"`, 'fill:var(--nb-tape)')}/>` +
-    `<rect x="${x + spine}" y="${y}" width=".9" height="${h}" fill="#ffffff" opacity=".28"/></g>`
-  const label = `<rect x="${px}" y="${py}" width="${pw}" height="${ph}" rx="2.2" ${tone(`fill="${plate}"`, 'fill:var(--nb-label)')}/>`
-  const lines = opts.small
-    ? ''
-    : (wide ? [py + ph + 4.5] : [py + ph + 5, py + ph + 9.5])
-        .map((ly, i) => `<path d="M${px} ${ly}h${pw * (i ? 0.6 : 1)}" ${tone(`stroke="${ink}"`, 'stroke:var(--nb-line)')} stroke-opacity=".5" stroke-width="1.4" stroke-linecap="round" fill="none"/>`)
-        .join('')
-  const emblem = opts.small ? '' : symbolMark(symbol, px + pw / 2, py + ph / 2, wide ? 11.5 : 12.5, mark)
+  const tape = `<rect x="${x}" y="${y}" width="${spine}" height="${h}" ${tone(`fill="${mix(c, '#000000', l > 0.8 ? 0.3 : 0.45)}"`, 'fill:var(--nb-tape)')} opacity=".85" clip-path="url(#${id}c)"/>`
   const edge = `<rect x="${x + 0.5}" y="${y + 0.5}" width="${w - 1}" height="${h - 1}" rx="3" fill="none" ${auto ? 'style="stroke:var(--nb-rim)"' : `stroke="${rim}"`} stroke-opacity=".45" stroke-width="1"/>`
-  return `<svg class="lib-icon notebook-art ${wide ? 'landscape' : ''} ${auto ? 'auto' : ''}" viewBox="0 0 48 48" aria-hidden="true">${defs}${edges}${cover}${tape}${edge}${label}${lines}${emblem}</svg>`
+  // White on a coloured cover, violet on a white one.
+  const ribbon = `<path d="M${rx} ${y - 1.5}h5.4v${wide ? 13 : 16}l-2.7-2.4-2.7 2.4z" ${tone(`fill="${l > 0.8 ? '#5a0cae' : '#ffffff'}"`, 'fill:var(--nb-ribbon)')} stroke="#000000" stroke-opacity=".12" stroke-width=".5"/>`
+  const emblem = opts.small ? '' : symbolMark(symbol, x + spine + (rx - x - spine) / 2 + (wide ? 2 : 1.5), y + h / 2 + (wide ? 0 : 3), wide ? 14 : 13, ink)
+  return `<svg class="lib-icon notebook-art ${wide ? 'landscape' : ''} ${auto ? 'auto' : ''}" viewBox="0 0 48 48" aria-hidden="true">${defs}${pages}${cover}${tape}${edge}${ribbon}${emblem}</svg>`
 }
