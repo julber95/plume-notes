@@ -128,7 +128,7 @@ function newNotebookDialog(last: NotebookOptions): Promise<NewNotebook | null> {
         )
         coverOptions.hidden = template === null
         colors.replaceChildren(
-          ...COVER_COLORS.map((c) => h('button', { type: 'button', class: `swatch ${c === color ? 'selected' : ''}`, style: `background:${c}`, 'aria-label': `Cover colour ${c}`, onClick: () => ((color = c), draw()) })),
+          ...COVER_COLORS.map((c) => h('button', { type: 'button', class: `swatch ${c === color ? 'selected' : ''}`, style: `--c:${c}`, 'aria-label': `Cover colour ${c}`, onClick: () => ((color = c), draw()) })),
         )
         tiles.replaceChildren(
           ...BACKGROUNDS.map((b) =>
@@ -194,7 +194,7 @@ function lookPicker(sample: Pick<LibNode, 'kind' | 'orient' | 'foreign' | 'fromP
     preview.replaceChildren(art({ ...sample, look: value() }, filled))
     colors.replaceChildren(
       ...palette.map((c) =>
-        h('button', { type: 'button', role: 'radio', 'aria-checked': String(c.id === color), class: `swatch ${c.id === color ? 'selected' : ''}`, style: `background:${c.id}`, title: c.label, 'aria-label': c.label, onClick: () => ((color = c.id), draw()) }),
+        h('button', { type: 'button', role: 'radio', 'aria-checked': String(c.id === color), class: `swatch ${c.id === color ? 'selected' : ''}`, style: `--c:${c.id}`, title: c.label, 'aria-label': c.label, onClick: () => ((color = c.id), draw()) }),
       ),
     )
     const pick = (id: string, label: string, content: string | null) =>

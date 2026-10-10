@@ -16,14 +16,23 @@ export type ToolKind = 'pen' | 'pencil' | 'highlighter' | 'eraser' | 'line' | 'l
 
 export interface ToolState {
   kind: ToolKind
-  pen: { color: string; width: number }
+  pen: InkTool
   /** Scribbling over existing ink with the pen erases it. */
   scribbleErase: boolean
   /** Holding the pen still at the end of a stroke turns it into a clean shape. */
   shapeHold: boolean
-  pencil: { color: string; width: number }
-  highlighter: { color: string; width: number }
-  eraser: { mode: 'stroke' | 'partial'; size: number }
+  pencil: InkTool
+  highlighter: InkTool
+  /** `sizes`: the three sizes kept at hand in the toolbar. */
+  eraser: { mode: 'stroke' | 'partial'; size: number; sizes?: number[] }
+}
+
+/** A writing tool; `colors` and `widths` are the three of each kept at hand in the toolbar. */
+export interface InkTool {
+  color: string
+  width: number
+  colors?: string[]
+  widths?: number[]
 }
 
 export interface StrokeChange {

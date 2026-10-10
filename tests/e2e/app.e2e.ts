@@ -55,6 +55,15 @@ async function device(width = 1280, height = 800): Promise<{ ctx: BrowserContext
   }
   await ctx.route('https://graph.microsoft.com/**', graph)
   await ctx.route('https://download.example/**', graph)
+  // The writing tools are docked at the bottom, so that the page keeps the place these tests write at
+  // (their own test moves them).
+  await ctx.addInitScript(() => {
+    try {
+      if (!localStorage.getItem('plume.toolDock')) localStorage.setItem('plume.toolDock', 'bottom')
+    } catch {
+      // a page without storage (the sign-in redirect)
+    }
+  })
   const page = await ctx.newPage()
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(String(e)))
@@ -183,7 +192,7 @@ describe('Plume in the browser', () => {
     await page.getByRole('button', { name: 'Precise' }).click()
     await page.keyboard.press('Escape')
     await page.locator('canvas.ink').click({ position: { x: 5, y: 5 } })
-    await page.getByTitle('Eraser 6 pt').click()
+    await page.getByTitle('Size 1: 6 pt').click()
     await pen(cdp, [[500, 180], [500, 200]])
     await settle(page)
     expect(await strokeCount(page)).toBe(6)
@@ -1204,6 +1213,118 @@ describe('Plume in the browser', () => {
     await expect.poll(() => art(other.page, 'notebook', 'Titration').innerHTML(), { timeout: 15_000 }).toContain('#8c40ef')
     // A PDF that was imported keeps a logo of its own.
     await expect.poll(() => other.page.locator('.listing .card.notebook', { hasText: 'handout' }).last().locator('svg.notebook-art.pdf').count(), { timeout: 20_000 }).toBe(1)
+    expect([...tab.errors, ...other.errors]).toEqual([])
+    await tab.ctx.close()
+    await other.ctx.close()
+  })
+
+  it('keeps three colours and three widths of each tool at hand, in a bar that can be moved', async () => {
+    const signIn = async (page: Page) => {
+      await page.locator('.sync-chip').click()
+      await page.getByRole('button', { name: 'Sign in to OneDrive' }).click()
+      await page.waitForFunction(() => document.querySelector('.sync-chip')?.getAttribute('data-state') === 'ok')
+    }
+    const kv = (page: Page, key: string) =>
+      page.evaluate(
+        (k) =>
+          new Promise<any>((resolve, reject) => {
+            const open = indexedDB.open('plume')
+            open.onerror = () => reject(open.error)
+            open.onsuccess = () => {
+              const req = open.result.transaction('kv').objectStore('kv').get(k)
+              req.onsuccess = () => (open.result.close(), resolve(req.result))
+            }
+          }),
+        key,
+      )
+    const newNotebook = async (page: Page, name: string) => {
+      await page.getByRole('button', { name: 'Notebook', exact: true }).click()
+      await page.getByLabel('Name', { exact: true }).fill(name)
+      await page.getByRole('button', { name: 'Create' }).click()
+      await page.locator('canvas.ink').waitFor()
+    }
+    // A tablet held upright, the bar where it is at first: at the top.
+    const tab = await device(800, 1280)
+    const { page } = tab
+    await page.evaluate(() => localStorage.setItem('plume.toolDock', 'top'))
+    await signIn(page)
+    await newNotebook(page, 'Toolbar')
+    const dock = () => page.locator('.workspace').getAttribute('data-dock')
+    expect(await dock()).toBe('top')
+    // Everything is in sight, upright too.
+    for (const name of [/^Colour 1/, /^Colour 2/, /^Colour 3/, /^Thickness 1/, /^Thickness 2/, /^Thickness 3/]) expect(await page.getByRole('button', { name }).isVisible()).toBe(true)
+    const bar = (await page.locator('.belt').boundingBox())!
+    const ink = (await page.locator('canvas.ink').boundingBox())!
+    expect(bar.y + bar.height).toBeLessThanOrEqual(ink.y + 0.5) // beside the page, never over it
+
+    // One tap selects.
+    await page.getByRole('button', { name: 'Colour 2: #1d4ed8' }).click()
+    await expect.poll(async () => (await kv(page, 'tool')).pen.color).toBe('#1d4ed8')
+    expect(await page.locator('.preset-panel').count()).toBe(0)
+    // A tap on the colour already selected changes it: ready-made colours, or any other.
+    await page.getByRole('button', { name: 'Colour 2: #1d4ed8' }).click()
+    await page.locator('.preset-panel').waitFor()
+    await shot(page, '41-colour-panel')
+    await page.getByRole('button', { name: 'Use #15803d' }).click()
+    await page.getByRole('button', { name: 'Colour 2: #15803d' }).waitFor()
+    await page.getByLabel('Colour code').fill('#AB12cd')
+    await page.getByLabel('Colour code').press('Enter')
+    await page.getByRole('button', { name: 'Colour 2: #ab12cd' }).waitFor()
+    await page.getByRole('button', { name: 'Use #15803d' }).click()
+    expect((await kv(page, 'tool')).pen.colors).toEqual(['#1a1a1a', '#15803d', '#c62828'])
+    await page.getByRole('button', { name: 'Colour 2: #15803d' }).click()
+    await expect.poll(() => page.locator('.preset-panel').count()).toBe(0)
+
+    // The same for a width, with the stroke it gives.
+    await page.getByRole('button', { name: 'Thickness 3: 2.2 pt' }).click()
+    await expect.poll(async () => (await kv(page, 'tool')).pen.width).toBe(2.2)
+    await page.getByRole('button', { name: 'Thickness 3: 2.2 pt' }).click()
+    await page.locator('.preset-panel .stroke-preview svg').waitFor()
+    await page.locator('.preset-panel input[type=range]').fill('4')
+    await page.getByRole('button', { name: 'Thickness 3: 4 pt' }).waitFor()
+    await shot(page, '42-thickness-panel')
+    expect((await kv(page, 'tool')).pen.widths).toEqual([0.8, 1.3, 4])
+    await page.keyboard.press('Escape')
+    await page.locator('.editor-title').click()
+    await expect.poll(() => page.locator('.preset-panel').count()).toBe(0)
+    // Each tool has its own three; the eraser has three sizes.
+    await page.getByRole('button', { name: 'Highlighter' }).click()
+    await page.getByRole('button', { name: 'Colour 1: #ffe14d' }).waitFor()
+    await page.getByRole('button', { name: 'Eraser', exact: true }).click()
+    await page.getByRole('button', { name: 'Size 3: 24 pt' }).click()
+    await expect.poll(async () => (await kv(page, 'tool')).eraser.size).toBe(24)
+    await page.getByRole('button', { name: 'Pen', exact: true }).click()
+
+    // The bar goes to another edge: from its menu, or carried by its handle. Its place is remembered.
+    await page.getByRole('button', { name: 'Move the toolbar' }).click()
+    await page.getByRole('menuitem', { name: 'On the left' }).click()
+    expect(await dock()).toBe('left')
+    const side = (await page.locator('.belt').boundingBox())!
+    expect(side.width).toBeLessThan(70)
+    for (const name of [/^Colour 3/, /^Thickness 3/]) expect(await page.getByRole('button', { name }).isVisible()).toBe(true)
+    await shot(page, '43-toolbar-left')
+    const grip = (await page.getByRole('button', { name: 'Move the toolbar' }).boundingBox())!
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(300, 700, { steps: 6 })
+    await page.mouse.move(400, 1240, { steps: 6 })
+    await page.locator('.dock-hint[data-dock=bottom]').waitFor()
+    await page.mouse.up()
+    expect(await dock()).toBe('bottom')
+    await page.reload()
+    await page.locator('canvas.ink').waitFor()
+    expect(await dock()).toBe('bottom')
+    await page.getByRole('button', { name: 'Colour 2: #15803d' }).waitFor()
+
+    // On another device: the same three colours and widths, once they have been sent.
+    await page.getByRole('button', { name: 'Back to library' }).click()
+    await expect.poll(() => new TextDecoder().decode(drive.find('Plume/plume-library.json')?.content), { timeout: 15_000 }).toContain('#15803d')
+    const other = await device()
+    await signIn(other.page)
+    await other.page.locator('.listing .card.notebook', { hasText: 'Toolbar' }).filter({ hasText: '1 page' }).last().click()
+    await other.page.locator('canvas.ink').waitFor()
+    await other.page.getByRole('button', { name: 'Colour 2: #15803d' }).waitFor()
+    await other.page.getByRole('button', { name: 'Thickness 3: 4 pt' }).waitFor()
     expect([...tab.errors, ...other.errors]).toEqual([])
     await tab.ctx.close()
     await other.ctx.close()

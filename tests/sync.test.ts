@@ -362,6 +362,28 @@ describe('OneDrive sync', () => {
     expect(JSON.parse(new TextDecoder().decode(item.content)).items[remoteId].color).toBe('#e3008c')
   })
 
+  it('the colours and widths kept in the toolbar follow on the other devices', async () => {
+    await createFolder(ROOT, 'Maths')
+    const mine = { pen: { colors: ['#1a1a1a', '#0ea5e9', '#c62828'], widths: [0.6, 1.3, 3] }, eraser: { sizes: [6, 12, 30] } }
+    await kvSet('tools', { at: Date.now(), dirty: true, presets: mine })
+    await engine.refresh()
+    expect(engine.status.state).toBe('pending')
+    await engine.sync()
+    expect(engine.status.state).toBe('ok')
+    expect((await kvGet<{ dirty?: boolean }>('tools'))?.dirty).toBeUndefined()
+
+    await freshDevice()
+    await engine.sync()
+    expect((await kvGet<{ presets: unknown }>('tools'))?.presets).toEqual(mine)
+    // Changed on the second device: the first one gets it; a file written by hand with nonsense is ignored.
+    const theirs = { pen: { colors: ['#15803d', '#0ea5e9', '#c62828'], widths: [0.6, 1.3, 3] }, pencil: { colors: ['red'], widths: [1, 2, 3] } }
+    await kvSet('tools', { at: Date.now() + 5, dirty: true, presets: theirs })
+    await engine.sync()
+    await freshDevice()
+    await engine.sync()
+    expect((await kvGet<{ presets: unknown }>('tools'))?.presets).toEqual({ pen: theirs.pen })
+  })
+
   it('reports a required sign-in or a missing configuration', async () => {
     auth = 'disabled'
     await engine.sync()

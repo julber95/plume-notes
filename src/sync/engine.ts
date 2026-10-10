@@ -11,6 +11,7 @@ import { allNodes, getNode, kvGet, kvSet, mutateNodes, purgeNodes, replaceNotebo
 import { ROOT, conflictStamp, hasPendingSync, isDirtyNotebook, mostlyPdf, siblingNames, uid, uniqueName, type LibNode, type Look, type Page } from '../model'
 import { dataToContent, type NotebookData } from '../pdf/codec'
 import type { BuiltPdf } from '../pdf/fromDb'
+import { TOOLS_KEY, readPresets, type SyncedTools, type ToolPresets } from '../presets'
 import { AuthRequiredError, GraphError, type DriveItem, type GraphClient } from './graph'
 
 export type SyncState = 'disabled' | 'signedOut' | 'offline' | 'syncing' | 'pending' | 'ok' | 'error'
@@ -100,12 +101,15 @@ function forkConflict(nodes: LibNode[], n: LibNode, remoteName?: string, remoteP
 interface LooksFile {
   version: 1
   items: Record<string, Look & { at: number }>
+  /** The colours and widths kept at hand in the writing toolbar. */
+  tools?: { at: number; presets: ToolPresets }
 }
 
 function parseLooks(bytes: Uint8Array): LooksFile {
   const out: LooksFile = { version: 1, items: {} }
   try {
-    const raw = JSON.parse(new TextDecoder().decode(bytes)) as { items?: Record<string, unknown> }
+    const raw = JSON.parse(new TextDecoder().decode(bytes)) as { items?: Record<string, unknown>; tools?: { at?: unknown; presets?: unknown } }
+    if (raw.tools && typeof raw.tools.at === 'number') out.tools = { at: raw.tools.at, presets: readPresets(raw.tools.presets) }
     for (const [id, v] of Object.entries(raw.items ?? {})) {
       const e = v as { color?: unknown; symbol?: unknown; at?: unknown }
       if (!e || typeof e.at !== 'number') continue
@@ -155,7 +159,7 @@ export class SyncEngine {
     if (auth !== 'ready') return this.setStatus(auth)
     if (!this.host.isOnline()) return this.setStatus('offline')
     if (this.status.state === 'error') return
-    const pending = (await allNodes()).some(hasPendingSync)
+    const pending = (await allNodes()).some(hasPendingSync) || !!(await kvGet<SyncedTools>(TOOLS_KEY))?.dirty
     await this.setStatus(pending ? 'pending' : 'ok')
   }
 
@@ -189,7 +193,7 @@ export class SyncEngine {
         return this.setStatus('error', e instanceof Error ? e.message : String(e))
       }
     } while (this.again && ++rounds < 8)
-    const pending = (await allNodes()).some(hasPendingSync)
+    const pending = (await allNodes()).some(hasPendingSync) || !!(await kvGet<SyncedTools>(TOOLS_KEY))?.dirty
     await this.setStatus(pending ? 'pending' : 'ok')
   }
 
@@ -249,7 +253,8 @@ export class SyncEngine {
   private async syncLooks(g: GraphClient, rootId: string): Promise<void> {
     const stale = await kvGet<boolean>('looksStale')
     const pending = (await allNodes()).some((n) => n.lookDirty && n.remoteId && !n.deleted)
-    if (!stale && !pending) return
+    const tools = await kvGet<SyncedTools>(TOOLS_KEY)
+    if (!stale && !pending && !tools?.dirty) return
 
     const existing = await g.childByName(rootId, LOOKS_FILE)
     let item = existing && !existing.folder ? existing : undefined
@@ -291,6 +296,17 @@ export class SyncEngine {
     })
     if (changedHere) this.emit({ type: 'library' })
 
+    // The toolbar: the same rule, for the whole set at once.
+    let toolsSent: number | undefined
+    if (file.tools && file.tools.at > (tools?.at ?? 0)) await kvSet(TOOLS_KEY, { at: file.tools.at, presets: file.tools.presets } satisfies SyncedTools)
+    else if (tools && (tools.dirty || !file.tools)) {
+      if (file.tools?.at !== tools.at) {
+        file.tools = { at: tools.at, presets: tools.presets }
+        changedThere = true
+      }
+      toolsSent = tools.at
+    }
+
     if (changedThere) {
       const bytes = new TextEncoder().encode(JSON.stringify(file))
       try {
@@ -304,6 +320,10 @@ export class SyncEngine {
       }
     }
     for (const [id, at] of sent) await updateNode(id, (m) => (m.lookAt === at || m.lookAt === undefined ? void (m.lookDirty = false) : false))
+    if (toolsSent !== undefined) {
+      const now = await kvGet<SyncedTools>(TOOLS_KEY)
+      if (now?.dirty && now.at === toolsSent) await kvSet(TOOLS_KEY, { at: now.at, presets: now.presets } satisfies SyncedTools)
+    }
     await kvSet('looksETag', item?.eTag)
     await kvSet('looksStale', undefined)
   }

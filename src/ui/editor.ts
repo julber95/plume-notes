@@ -5,7 +5,8 @@ import { buildAxes } from '../axes'
 import { BACKGROUNDS, pageSize, uid, type Background, type LibNode, type Orientation, type Page, type Stroke } from '../model'
 import { PdfView } from './pdfview'
 import { preparePicture } from './pictures'
-import { InkCanvas, type SelectionKind, type StrokeChange, type ToolKind, type ToolState } from './canvas'
+import { InkCanvas, type InkTool, type SelectionKind, type StrokeChange, type ToolKind, type ToolState } from './canvas'
+import { TOOLS_KEY, currentPresets, type SyncedTools } from '../presets'
 import { button, closePopovers, confirmDialog, dialogButtons, h, iconButton, icons, openDialog, openMenu, promptDialog, showPopover, toast } from './dom'
 
 export interface EditorHandle {
@@ -30,15 +31,54 @@ const PEN_WIDTHS = [0.8, 1.3, 2.2]
 const PENCIL_WIDTHS = [1, 1.5, 2.4]
 const HL_WIDTHS = [8, 14, 22]
 const ERASER_SIZES = [6, 12, 24]
+/** The colours offered when one of the three colours of a tool is changed. */
+const PALETTE = [
+  '#1a1a1a', '#4a4f57', '#8a8f98', '#8a5a2b', '#b45309', '#c62828',
+  '#e4572e', '#f2a516', '#e8c21a', '#7cb518', '#15803d', '#0e7490',
+  '#0ea5e9', '#1d4ed8', '#4338ca', '#6d28d9', '#a21caf', '#9d174d',
+  '#e2558f', '#f29e9e', '#f6c38a', '#a7d99b', '#9ecff2', '#c4b5fd',
+]
+const HL_PALETTE = ['#ffe14d', '#ffbf6b', '#ff9f8a', '#ffa8d0', '#e0a3ff', '#c9b3ff', '#7fd8ff', '#8ff0e0', '#a8f06e', '#d6f25c', '#d9d9d9', '#f2d3a0']
+
+export type ToolDock = 'top' | 'bottom' | 'left' | 'right'
+const DOCK_KEY = 'plume.toolDock'
+const DOCKS: [ToolDock, string][] = [
+  ['top', 'At the top'],
+  ['bottom', 'At the bottom'],
+  ['left', 'On the left'],
+  ['right', 'On the right'],
+]
+
+function storedDock(): ToolDock {
+  try {
+    const v = localStorage.getItem(DOCK_KEY)
+    return DOCKS.some(([d]) => d === v) ? (v as ToolDock) : 'top'
+  } catch {
+    return 'top'
+  }
+}
+
+/**
+ * The three values a tool keeps at hand. A tool saved before there were any
+ * keeps its colour and its width: they take a place among the default ones.
+ */
+function atHand<T>(saved: T[] | undefined, defaults: T[], current: T, place: (list: T[]) => number): T[] {
+  if (Array.isArray(saved) && saved.length === 3) return saved
+  const list = [...defaults]
+  if (!list.includes(current)) list[place(list)] = current
+  return list
+}
+
+const nearest = (value: number) => (list: number[]) => list.reduce((best, v, i) => (Math.abs(v - value) < Math.abs(list[best] - value) ? i : best), 0)
 
 const DEFAULT_TOOL: ToolState = {
   kind: 'pen',
-  pen: { color: PEN_COLORS[0], width: PEN_WIDTHS[1] },
-  pencil: { color: PEN_COLORS[0], width: PENCIL_WIDTHS[1] },
+  pen: { color: PEN_COLORS[0], width: PEN_WIDTHS[1], colors: [PEN_COLORS[0], PEN_COLORS[2], PEN_COLORS[6]], widths: PEN_WIDTHS },
+  pencil: { color: PEN_COLORS[0], width: PENCIL_WIDTHS[1], colors: [PEN_COLORS[0], PEN_COLORS[1], PEN_COLORS[2]], widths: PENCIL_WIDTHS },
   scribbleErase: true,
   shapeHold: true,
-  highlighter: { color: HL_COLORS[0], width: HL_WIDTHS[1] },
-  eraser: { mode: 'stroke', size: ERASER_SIZES[1] },
+  highlighter: { color: HL_COLORS[0], width: HL_WIDTHS[1], colors: HL_COLORS.slice(0, 3), widths: HL_WIDTHS },
+  eraser: { mode: 'stroke', size: ERASER_SIZES[1], sizes: ERASER_SIZES },
 }
 
 const TOOLS: { kind: ToolKind; label: string; icon: string }[] = [
@@ -56,6 +96,20 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
 
   const saved = await kvGet<ToolState>('tool')
   const tool: ToolState = { ...DEFAULT_TOOL, ...saved, pen: { ...DEFAULT_TOOL.pen, ...saved?.pen }, pencil: { ...DEFAULT_TOOL.pencil, ...saved?.pencil }, highlighter: { ...DEFAULT_TOOL.highlighter, ...saved?.highlighter }, eraser: { ...DEFAULT_TOOL.eraser, ...saved?.eraser } }
+  // The three colours and widths of each tool: those chosen on any device, if they were sent to OneDrive.
+  const synced = await kvGet<SyncedTools>(TOOLS_KEY)
+  for (const kind of ['pen', 'pencil', 'highlighter'] as const) {
+    const t = tool[kind]
+    const d = DEFAULT_TOOL[kind]
+    const theirs = synced?.presets[kind]
+    t.colors = [...(theirs?.colors ?? atHand(saved?.[kind]?.colors, d.colors!, t.color, () => 0))]
+    t.widths = [...(theirs?.widths ?? atHand(saved?.[kind]?.widths, d.widths!, t.width, nearest(t.width)))]
+    // What is selected is always one of the three.
+    if (!t.colors.includes(t.color)) t.color = t.colors[0]
+    if (!t.widths.includes(t.width)) t.width = t.widths[nearest(t.width)(t.widths)]
+  }
+  tool.eraser.sizes = [...(synced?.presets.eraser?.sizes ?? atHand(saved?.eraser?.sizes, ERASER_SIZES, tool.eraser.size, nearest(tool.eraser.size)))]
+  if (!tool.eraser.sizes.includes(tool.eraser.size)) tool.eraser.size = tool.eraser.sizes[nearest(tool.eraser.size)(tool.eraser.sizes)]
   let pages: Page[] = []
   let undo: StrokeChange[] = []
   let redo: StrokeChange[] = []
@@ -94,6 +148,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
   const redoBtn = iconButton(icons.redo, 'Redo', () => doRedo())
   const toolButtons = new Map<ToolKind, HTMLButtonElement>()
   const quick = h('div', { class: 'quick' })
+  let dock = storedDock()
   const pageLabel = h('button', { class: 'page-pill', type: 'button', title: 'Pages', onClick: () => togglePanel() })
   const panel = h('aside', { class: 'pages-panel', hidden: true })
   // Left panel: a small preview of each page, to move around the notebook.
@@ -174,6 +229,18 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     iconButton(icons.back, 'Back to library', () => void close()),
     iconButton(icons.sidebar, 'Page previews', () => toggleThumbs()),
     title,
+    h('div', { class: 'spacer' }),
+    undoBtn,
+    redoBtn,
+    iconButton(icons.pages, 'Pages', () => togglePanel()),
+    deps.syncChip,
+  )
+  // The writing tools have a bar of their own, which can be moved to any edge of the page.
+  const grip = h('button', { type: 'button', class: 'belt-grip', title: 'Move the toolbar', 'aria-label': 'Move the toolbar', html: icons.grip })
+  const belt = h(
+    'div',
+    { class: 'belt', role: 'toolbar', 'aria-label': 'Writing tools' },
+    grip,
     h(
       'div',
       { class: 'tools' },
@@ -183,14 +250,9 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
         toolButtons.set(t.kind, b)
         return b
       }),
+      insertButton,
     ),
-    insertButton,
     quick,
-    h('div', { class: 'spacer' }),
-    undoBtn,
-    redoBtn,
-    iconButton(icons.pages, 'Pages', () => togglePanel()),
-    deps.syncChip,
   )
   const corner = h(
     'div',
@@ -200,8 +262,58 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     h('button', { class: 'page-pill', type: 'button', title: 'Fit to width', onClick: () => canvas.zoomBy('fit') }, 'Fit'),
     pageLabel,
   )
-  const view = h('div', { class: 'editor' }, toolbar, h('div', { class: 'editor-body' }, thumbs, stage, corner, selBar, panel, picker))
+  const dockHint = h('div', { class: 'dock-hint', hidden: true })
+  const workspace = h('div', { class: 'workspace' }, belt, h('div', { class: 'editor-body' }, thumbs, stage, corner, selBar, panel, picker), dockHint)
+  workspace.dataset.dock = dock
+  const view = h('div', { class: 'editor' }, toolbar, workspace)
   root.replaceChildren(view)
+
+  function setDock(to: ToolDock): void {
+    dock = to
+    workspace.dataset.dock = to
+    try {
+      localStorage.setItem(DOCK_KEY, to)
+    } catch {
+      // storage unavailable: the place lasts until the notebook is closed
+    }
+    closePopovers()
+  }
+
+  // Dragging the handle carries the bar to the nearest edge; a tap lists the four places.
+  grip.addEventListener('pointerdown', (down) => {
+    if (down.button > 0) return
+    down.preventDefault()
+    grip.setPointerCapture(down.pointerId)
+    let target: ToolDock | null = null
+    const move = (e: PointerEvent) => {
+      const dx = e.clientX - down.clientX
+      const dy = e.clientY - down.clientY
+      if (!target && Math.hypot(dx, dy) < 12) return
+      const box = workspace.getBoundingClientRect()
+      const x = (e.clientX - box.left) / box.width
+      const y = (e.clientY - box.top) / box.height
+      const gaps: [ToolDock, number][] = [['top', y], ['bottom', 1 - y], ['left', x], ['right', 1 - x]]
+      target = gaps.reduce((best, g) => (g[1] < best[1] ? g : best))[0]
+      belt.classList.add('moving')
+      belt.style.translate = `${dx}px ${dy}px`
+      dockHint.hidden = false
+      dockHint.dataset.dock = target
+    }
+    const end = (e: PointerEvent) => {
+      grip.removeEventListener('pointermove', move)
+      grip.removeEventListener('pointerup', end)
+      grip.removeEventListener('pointercancel', end)
+      belt.classList.remove('moving')
+      belt.style.translate = ''
+      dockHint.hidden = true
+      if (target && e.type === 'pointerup') setDock(target)
+      else if (!target && e.type === 'pointerup')
+        openMenu(grip, DOCKS.map(([d, label]) => ({ label, icon: d === dock ? icons.check : undefined, action: () => setDock(d) })))
+    }
+    grip.addEventListener('pointermove', move)
+    grip.addEventListener('pointerup', end)
+    grip.addEventListener('pointercancel', end)
+  })
 
   const canvas = new InkCanvas(
     stage,
@@ -250,6 +362,31 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     refreshButtons()
   }
 
+  /** One of the three colours, widths or sizes kept at hand was changed: it follows on the other devices. */
+  function savePresets(): void {
+    void kvSet(TOOLS_KEY, { at: Date.now(), dirty: true, presets: currentPresets(tool) } satisfies SyncedTools)
+    saveTool()
+  }
+
+  /** Gives the selected colour of a tool another value: the place it holds in the bar takes it. */
+  function setColor(t: InkTool, c: string): void {
+    const i = Math.max(0, t.colors!.indexOf(t.color))
+    t.colors![i] = t.color = c
+    savePresets()
+  }
+
+  function setWidth(t: InkTool, w: number): void {
+    const i = Math.max(0, t.widths!.indexOf(t.width))
+    t.widths![i] = t.width = w
+    savePresets()
+  }
+
+  function setEraserSize(size: number): void {
+    const sizes = tool.eraser.sizes!
+    sizes[Math.max(0, sizes.indexOf(tool.eraser.size))] = tool.eraser.size = size
+    savePresets()
+  }
+
   function selectTool(kind: ToolKind, button: HTMLElement): void {
     selBar.hidden = true
     if (tool.kind !== kind) {
@@ -269,7 +406,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
       'div',
       { class: 'swatches' },
       ...colors.map((c) =>
-        h('button', { type: 'button', class: `swatch ${c === current ? 'selected' : ''}`, style: `background:${c}`, title: c, 'aria-label': `Colour ${c}`, onClick: () => pick(c) }),
+        h('button', { type: 'button', class: `swatch ${c === current ? 'selected' : ''}`, style: `--c:${c}`, title: c, 'aria-label': `Colour ${c}`, onClick: () => pick(c) }),
       ),
       custom,
     )
@@ -290,6 +427,9 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     })
     return h('label', { class: 'slider' }, h('span', {}, label), input, out)
   }
+
+  /** Smallest and largest width of a tool, and the step between two values. */
+  const widthRange = (kind: ToolKind): [number, number, number] => (kind === 'highlighter' ? [4, 30, 1] : [0.4, kind === 'pencil' ? 6 : 5, 0.1])
 
   function toolPanel(kind: ToolKind): HTMLElement {
     const box = h('div', { class: 'popover tool-panel' })
@@ -322,23 +462,17 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
               ),
             ),
           ),
-          slider('Size', tool.eraser.size, 3, 40, 1, (v) => {
-            tool.eraser.size = v
-            saveTool()
-          }),
+          slider('Size', tool.eraser.size, 3, 40, 1, setEraserSize),
         ]
       }
       const t = kind === 'highlighter' ? tool.highlighter : kind === 'pencil' ? tool.pencil : tool.pen
       const hl = kind === 'highlighter'
       return [
         swatches(hl ? HL_COLORS : PEN_COLORS, t.color, (c) => {
-          t.color = c
+          setColor(t, c)
           rebuild()
         }),
-        slider('Width', t.width, hl ? 4 : 0.4, hl ? 30 : kind === 'pencil' ? 6 : 5, hl ? 1 : 0.1, (v) => {
-          t.width = v
-          saveTool()
-        }),
+        slider('Width', t.width, ...widthRange(kind), (v) => setWidth(t, v)),
         ...(kind === 'pen'
           ? [
               h(
@@ -408,7 +542,7 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
             ? []
             : [
                 ...[PEN_COLORS[0], PEN_COLORS[2], PEN_COLORS[6], PEN_COLORS[4]].map((c) =>
-                  h('button', { type: 'button', class: 'swatch', style: `background:${c}`, title: 'Change colour', 'aria-label': `Recolour ${c}`, onClick: () => canvas.recolorSelection(c) }),
+                  h('button', { type: 'button', class: 'swatch', style: `--c:${c}`, title: 'Change colour', 'aria-label': `Recolour ${c}`, onClick: () => canvas.recolorSelection(c) }),
                 ),
                 h('input', { type: 'color', class: 'swatch custom', title: 'Other colour', 'aria-label': 'Recolour, other colour', onChange: (e: Event) => canvas.recolorSelection((e.target as HTMLInputElement).value) }),
                 h('span', { class: 'sep' }),
@@ -437,27 +571,110 @@ export async function openEditor(root: HTMLElement, notebookId: string, deps: Ed
     placeBar(x, y, 0, 0)
   }
 
-  /** Direct access to the current colours and widths (wide enough screens). */
+  /** Changes one of the three colours: ready-made colours, or any other one. */
+  function colorPanel(t: InkTool, hl: boolean): HTMLElement {
+    const box = h('div', { class: 'popover preset-panel' })
+    const draw = () => {
+      const hex = h('input', { type: 'text', class: 'hex', value: t.color, maxLength: 7, autocomplete: 'off', spellcheck: false, 'aria-label': 'Colour code' })
+      hex.addEventListener('change', () => {
+        const v = hex.value.trim().toLowerCase().replace(/^#?/, '#')
+        if (/^#[0-9a-f]{6}$/.test(v)) pick(v)
+        else hex.value = t.color
+      })
+      const free = h('input', { type: 'color', class: 'swatch custom', title: 'Any colour', 'aria-label': 'Any colour', value: t.color, onInput: () => ((t.colors![Math.max(0, t.colors!.indexOf(t.color))] = t.color = free.value), (hex.value = free.value), refreshButtons()), onChange: () => pick(free.value) })
+      box.replaceChildren(
+        h('strong', {}, 'Colour'),
+        h(
+          'div',
+          { class: 'palette' },
+          ...(hl ? HL_PALETTE : PALETTE).map((c) => h('button', { type: 'button', class: `swatch ${c === t.color ? 'selected' : ''}`, style: `--c:${c}`, title: c, 'aria-label': `Use ${c}`, onClick: () => pick(c) })),
+        ),
+        h('div', { class: 'custom-row' }, h('span', { class: 'muted' }, 'Custom'), free, hex),
+      )
+    }
+    const pick = (c: string) => {
+      setColor(t, c)
+      draw()
+    }
+    draw()
+    return box
+  }
+
+  /** Changes one of the three widths (or eraser sizes), with the stroke it gives. */
+  function widthPanel(kind: ToolKind): HTMLElement {
+    const eraser = kind === 'eraser'
+    const t = kind === 'highlighter' ? tool.highlighter : kind === 'pencil' ? tool.pencil : tool.pen
+    const [min, max, step] = eraser ? [3, 40, 1] : widthRange(kind)
+    const preview = h('div', { class: 'stroke-preview' })
+    const show = (v: number) => {
+      // Drawn at the size it has on a page seen at its real size.
+      const px = v * (96 / 72)
+      preview.innerHTML = eraser
+        ? `<svg viewBox="0 0 220 64" aria-hidden="true"><circle cx="110" cy="32" r="${px / 2}" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`
+        : `<svg viewBox="0 0 220 64" aria-hidden="true"><path d="M18 40c24-34 44-34 62-8s40 26 60-2 40-22 62 2" fill="none" stroke="${t.color}" stroke-width="${px}" stroke-linecap="${kind === 'highlighter' ? 'butt' : 'round'}" opacity="${kind === 'highlighter' ? 0.55 : 1}"/></svg>`
+    }
+    show(eraser ? tool.eraser.size : t.width)
+    return h(
+      'div',
+      { class: 'popover preset-panel' },
+      h('strong', {}, eraser ? 'Size' : 'Thickness'),
+      preview,
+      slider(eraser ? 'Size' : 'Width', eraser ? tool.eraser.size : t.width, min, max, step, (v) => {
+        if (eraser) setEraserSize(v)
+        else setWidth(t, v)
+        show(v)
+      }),
+    )
+  }
+
+  /**
+   * The three colours and the three widths of the current tool, always in
+   * the bar. One tap selects; a tap on the one already selected changes it.
+   */
   function renderQuick(): void {
+    const key = JSON.stringify([tool.kind, tool.pen, tool.pencil, tool.highlighter, tool.eraser])
+    if (quick.dataset.key === key) return
+    quick.dataset.key = key
     if (tool.kind === 'lasso') return quick.replaceChildren()
+    const preset = (cls: string, selected: boolean, label: string, select: () => void, edit: () => HTMLElement, style: string, content?: HTMLElement) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          class: `${cls} ${selected ? 'selected' : ''}`,
+          title: label,
+          'aria-label': label,
+          'aria-pressed': String(selected),
+          style,
+          onClick: () => {
+            // A tap on the one already selected opens its setting, or closes it if it is open.
+            const open = document.querySelector(`.preset-panel[data-for="${cls}"]`)
+            closePopovers()
+            if (!selected) return select()
+            if (open) return
+            const panel = edit()
+            panel.dataset.for = cls
+            showPopover(quick, panel)
+          },
+        },
+        content,
+      )
     if (tool.kind === 'eraser') {
       quick.replaceChildren(
-        ...ERASER_SIZES.map((s) =>
-          h('button', { type: 'button', class: `width ${tool.eraser.size === s ? 'selected' : ''}`, title: `Eraser ${s} pt`, onClick: () => ((tool.eraser.size = s), saveTool()) }, h('span', { class: 'ring', style: `width:${6 + s / 2}px;height:${6 + s / 2}px` })),
+        ...tool.eraser.sizes!.map((s, i) =>
+          preset('width', tool.eraser.size === s, `Size ${i + 1}: ${s} pt`, () => ((tool.eraser.size = s), saveTool()), () => widthPanel('eraser'), '', h('span', { class: 'ring', style: `width:${6 + s / 2}px;height:${6 + s / 2}px` })),
         ),
       )
       return
     }
-    const hl = tool.kind === 'highlighter'
-    const pencil = tool.kind === 'pencil'
-    const t = hl ? tool.highlighter : pencil ? tool.pencil : tool.pen
-    const colors = (hl ? HL_COLORS : PEN_COLORS.filter((_, i) => [0, 2, 6, 4].includes(i))).slice(0, 4)
-    if (!colors.includes(t.color)) colors[colors.length - 1] = t.color
+    const kind = tool.kind
+    const hl = kind === 'highlighter'
+    const t = hl ? tool.highlighter : kind === 'pencil' ? tool.pencil : tool.pen
     quick.replaceChildren(
-      ...colors.map((c) => h('button', { type: 'button', class: `swatch ${c === t.color ? 'selected' : ''}`, style: `background:${c}`, 'aria-label': `Colour ${c}`, onClick: () => ((t.color = c), saveTool()) })),
+      ...t.colors!.map((c, i) => preset('swatch', c === t.color, `Colour ${i + 1}: ${c}`, () => ((t.color = c), saveTool()), () => colorPanel(t, hl), `--c:${c}`)),
       h('span', { class: 'sep' }),
-      ...(hl ? HL_WIDTHS : pencil ? PENCIL_WIDTHS : PEN_WIDTHS).map((w) =>
-        h('button', { type: 'button', class: `width ${t.width === w ? 'selected' : ''}`, title: `${w} pt`, onClick: () => ((t.width = w), saveTool()) }, h('span', { class: 'bar', style: `height:${hl ? w / 3 : Math.max(1.5, w * 2)}px` })),
+      ...t.widths!.map((w, i) =>
+        preset('width', t.width === w, `Thickness ${i + 1}: ${w} pt`, () => ((t.width = w), saveTool()), () => widthPanel(kind), '', h('span', { class: 'bar', style: `height:${Math.min(16, hl ? Math.max(3, w / 2) : Math.max(1.5, w * 2.4))}px` })),
       ),
     )
   }

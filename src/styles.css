@@ -43,8 +43,8 @@
   --fill: linear-gradient(135deg, var(--violet-1), var(--violet-2) 58%, var(--violet-3));
   --ink-shine: linear-gradient(115deg, #3a0372, #4f0599 40%, #8c40ef);
   --hairline: linear-gradient(90deg, transparent, rgba(140, 64, 239, 0.55), transparent);
-  --dot: rgba(79, 5, 153, 0.13);
-  --barb: 0.5;
+  --dot: rgba(79, 5, 153, 0.07);
+  --barb: 0.3;
   --scrim: rgba(40, 20, 80, 0.28);
   color-scheme: light;
 }
@@ -86,8 +86,8 @@
   --violet-3: #4f0599;
   --ink-shine: linear-gradient(115deg, #efe6ff, #c9aaff 45%, #8c40ef);
   --hairline: linear-gradient(90deg, transparent, rgba(178, 140, 248, 0.6), transparent);
-  --dot: rgba(178, 140, 248, 0.13);
-  --barb: 0.75;
+  --dot: rgba(178, 140, 248, 0.07);
+  --barb: 0.4;
   --scrim: rgba(6, 4, 14, 0.6);
   color-scheme: dark;
 }
@@ -489,7 +489,7 @@ svg .tint {
   overflow: hidden;
 }
 
-/* Rings turning slowly around the mark, and a line of light under the pane. */
+/* Two quiet rings around the mark, and a line of light under the pane. */
 .hero::before {
   content: '';
   position: absolute;
@@ -502,10 +502,7 @@ svg .tint {
   background:
     radial-gradient(closest-side, transparent 62%, var(--glass-line) 62.5%, transparent 64%),
     radial-gradient(closest-side, transparent 80%, var(--glass-line) 80.5%, transparent 82%),
-    conic-gradient(from 0deg, transparent 0 70%, var(--glow) 88%, transparent 100%);
-  -webkit-mask-image: radial-gradient(closest-side, transparent 40%, #000 41%, #000 99%, transparent);
-  mask-image: radial-gradient(closest-side, transparent 40%, #000 41%, #000 99%, transparent);
-  animation: turn 24s linear infinite;
+    radial-gradient(closest-side, var(--glow-soft), transparent 78%);
   pointer-events: none;
 }
 
@@ -554,10 +551,8 @@ svg .tint {
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-family: var(--font-title);
   font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 550;
   font-variant-numeric: tabular-nums;
 }
 
@@ -806,7 +801,7 @@ button.tree-toggle {
     0 0 0 5px var(--glow-soft);
 }
 
-/* A section title: a small light, the name, the count, and a line fading out. */
+/* A section title: a small dot, the name, the count, and a line fading out. */
 .lib-section {
   display: flex;
   align-items: center;
@@ -815,19 +810,18 @@ button.tree-toggle {
   font-family: var(--font-title);
   font-size: 12.5px;
   font-weight: 650;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .lib-section::before {
   content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 1px;
-  background: var(--fill);
-  box-shadow: 0 0 8px var(--glow);
-  transform: rotate(45deg);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.7;
 }
 
 .lib-section::after {
@@ -987,8 +981,6 @@ button.tree-toggle {
 .card-date {
   flex: none;
   padding: 0 4px;
-  font-family: var(--font-title);
-  letter-spacing: 0.03em;
 }
 
 .fav-mark {
@@ -1054,15 +1046,12 @@ button.tree-toggle {
   transform: scale(0.96);
 }
 
-/* The well the icon stands in: lit from above, on a fine grid. */
+/* The well the icon stands in, softly lit from above. */
 .tile .card-art {
   width: auto;
   height: 96px;
   border-bottom: 1px solid var(--glass-line);
-  background:
-    radial-gradient(90px 60px at 50% 0, var(--glow-soft), transparent),
-    linear-gradient(var(--glass-line) 1px, transparent 1px) 0 -1px / 100% 16px,
-    linear-gradient(90deg, var(--glass-line) 1px, transparent 1px) -1px 0 / 16px 100%;
+  background: radial-gradient(110px 70px at 50% 0, var(--glow-soft), transparent);
 }
 
 .tile .art svg {
@@ -1286,10 +1275,8 @@ button.tree-toggle {
   background: var(--card);
   box-shadow: inset 0 1px 0 var(--glass-light);
   color: var(--muted);
-  font-family: var(--font-title);
   font-size: 13px;
   font-weight: 550;
-  letter-spacing: 0.02em;
   cursor: pointer;
   transition:
     box-shadow 0.2s,
@@ -1484,17 +1471,21 @@ button.tree-toggle {
 .swatches {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 9px;
+  gap: 12px;
   justify-items: center;
+  padding: 4px;
 }
 
 .swatch {
-  width: 32px;
-  height: 32px;
+  position: relative;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  border: 2px solid var(--surface);
+  border: 0;
   border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(120, 100, 160, 0.4);
+  background: var(--c, transparent);
+  /* A hairline so that white and black stay visible on any ground. */
+  box-shadow: inset 0 0 0 1px rgba(128, 120, 150, 0.35);
   cursor: pointer;
   transition:
     transform 0.18s cubic-bezier(0.3, 1.6, 0.5, 1),
@@ -1502,17 +1493,21 @@ button.tree-toggle {
 }
 
 .swatch:hover {
-  transform: scale(1.14);
+  transform: scale(1.1);
 }
 
 .swatch:active {
   transform: scale(0.9);
 }
 
-.swatch.selected {
-  box-shadow:
-    0 0 0 2px var(--accent),
-    0 0 12px var(--glow);
+/* The chosen colour wears a ring of its own colour, a little way out. */
+.swatch.selected::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  /* Its colour drawn towards the text colour, so that black shows on dark and white on light. */
+  border: 2px solid color-mix(in srgb, var(--c, var(--accent)) 62%, var(--text));
 }
 
 .swatch.custom {
@@ -1557,7 +1552,6 @@ button.tree-toggle {
 .slider-value {
   text-align: right;
   color: var(--muted);
-  font-family: var(--font-title);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1800,8 +1794,9 @@ button.tree-toggle {
 .cover-colors {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
   max-width: 250px;
+  padding: 4px;
 }
 
 .pages-panel .btn.wide + .btn.wide {
@@ -1857,9 +1852,7 @@ button.tree-toggle {
   border: 1px solid var(--glass-line);
   border-radius: var(--radius);
   background:
-    radial-gradient(110px 70px at 50% 0, var(--glow-soft), transparent),
-    linear-gradient(var(--glass-line) 1px, transparent 1px) 0 -1px / 100% 18px,
-    linear-gradient(90deg, var(--glass-line) 1px, transparent 1px) -1px 0 / 18px 100%,
+    radial-gradient(120px 80px at 50% 0, var(--glow-soft), transparent),
     var(--card);
   box-shadow: inset 0 1px 0 var(--glass-light);
 }
@@ -1872,8 +1865,9 @@ button.tree-toggle {
 
 .look-colors {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 32px);
-  gap: 9px;
+  grid-template-columns: repeat(auto-fill, 30px);
+  gap: 12px;
+  padding: 4px;
 }
 
 .look-symbols {
@@ -2046,11 +2040,166 @@ button.tree-toggle {
   letter-spacing: 0.01em;
 }
 
-.tools {
+/* The writing tools: a bar of their own, docked to an edge of the page. */
+
+.workspace {
+  position: relative;
   display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.workspace[data-dock='bottom'] {
+  flex-direction: column-reverse;
+}
+
+.workspace[data-dock='left'] {
+  flex-direction: row;
+}
+
+.workspace[data-dock='right'] {
+  flex-direction: row-reverse;
+}
+
+.belt {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 2px 4px;
+  min-height: 50px;
+  padding: 3px 8px;
+  background: var(--glass-strong);
+  border: 0 solid var(--glass-line);
+  border-bottom-width: 1px;
+  animation: fade 0.3s backwards;
+}
+
+.workspace[data-dock='bottom'] .belt {
+  border-width: 1px 0 0;
+  padding-bottom: max(3px, env(safe-area-inset-bottom));
+}
+
+.workspace[data-dock='left'] .belt,
+.workspace[data-dock='right'] .belt {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  width: 52px;
+  min-height: 0;
+  padding: 8px 3px;
+  border-width: 0 1px 0 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.workspace[data-dock='right'] .belt {
+  border-width: 0 0 0 1px;
+}
+
+/* While it is carried: lifted off the page, and the edge it will go to lights up. */
+.belt.moving {
+  z-index: 20;
+  border-width: 1px;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  opacity: 0.92;
+  cursor: grabbing;
+}
+
+.dock-hint {
+  position: absolute;
+  z-index: 19;
+  border-radius: 4px;
+  background: var(--fill);
+  box-shadow: 0 0 18px var(--glow);
+  pointer-events: none;
+  animation: fade 0.15s backwards;
+}
+
+.dock-hint[data-dock='top'],
+.dock-hint[data-dock='bottom'] {
+  left: 10%;
+  right: 10%;
+  height: 5px;
+}
+
+.dock-hint[data-dock='left'],
+.dock-hint[data-dock='right'] {
+  top: 10%;
+  bottom: 10%;
+  width: 5px;
+}
+
+.dock-hint[data-dock='top'] {
+  top: 4px;
+}
+
+.dock-hint[data-dock='bottom'] {
+  bottom: 4px;
+}
+
+.dock-hint[data-dock='left'] {
+  left: 4px;
+}
+
+.dock-hint[data-dock='right'] {
+  right: 4px;
+}
+
+.belt-grip {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  opacity: 0.7;
+}
+
+.belt-grip:hover {
+  background: var(--hover);
+  opacity: 1;
+}
+
+.belt-grip svg {
+  width: 18px;
+  height: 18px;
+}
+
+.workspace[data-dock='left'] .belt-grip,
+.workspace[data-dock='right'] .belt-grip {
+  width: 40px;
+  height: 28px;
+}
+
+.workspace[data-dock='left'] .belt-grip svg,
+.workspace[data-dock='right'] .belt-grip svg {
+  transform: rotate(90deg);
+}
+
+.tools,
+.quick {
+  display: flex;
+  align-items: center;
   gap: 2px;
-  padding: 0 4px;
-  border-left: 1px solid var(--glass-line);
+}
+
+.workspace[data-dock='left'] .tools,
+.workspace[data-dock='right'] .tools,
+.workspace[data-dock='left'] .quick,
+.workspace[data-dock='right'] .quick {
+  flex-direction: column;
 }
 
 .tool-dot {
@@ -2067,21 +2216,36 @@ button.tree-toggle {
 .icon-btn.active .tool-dot {
   width: 20px;
   margin-left: -10px;
-  box-shadow: 0 0 8px currentColor;
 }
 
+/* Nothing of the bar may spill over the page: no glow around the tool in hand. */
+.belt .icon-btn.active {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+/* The three colours and the three widths of the tool in hand. */
 .quick {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 8px;
+  gap: 3px;
+  padding-left: 8px;
   border-left: 1px solid var(--glass-line);
 }
 
+.quick:empty {
+  display: none;
+}
+
+.workspace[data-dock='left'] .quick,
+.workspace[data-dock='right'] .quick {
+  padding: 8px 0 0;
+  border-left: 0;
+  border-top: 1px solid var(--glass-line);
+}
+
 .quick .swatch {
-  width: 26px;
-  height: 26px;
-  margin: 0 2px;
+  width: 24px;
+  height: 24px;
+  margin: 8px;
+  flex: none;
 }
 
 .quick .sep {
@@ -2091,11 +2255,19 @@ button.tree-toggle {
   background: var(--glass-line);
 }
 
+.workspace[data-dock='left'] .quick .sep,
+.workspace[data-dock='right'] .quick .sep {
+  width: 22px;
+  height: 1px;
+  margin: 5px 0;
+}
+
 .quick .width {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 36px;
+  flex: none;
+  width: 38px;
+  height: 40px;
   padding: 0;
   border: 0;
   border-radius: var(--radius);
@@ -2116,14 +2288,79 @@ button.tree-toggle {
 }
 
 .quick .bar {
-  width: 20px;
-  border-radius: 4px;
+  width: 22px;
+  border-radius: 8px;
   background: var(--icon);
+}
+
+.quick .width.selected .bar {
+  background: var(--accent);
 }
 
 .quick .ring {
   border: 1.5px solid var(--icon);
   border-radius: 50%;
+}
+
+.quick .width.selected .ring {
+  border-color: var(--accent);
+}
+
+/* Changing one of the three: ready-made colours and any other one, or a width with its stroke. */
+.preset-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  width: min(296px, calc(100vw - 16px));
+  padding: 14px;
+}
+
+.preset-panel strong {
+  font-family: var(--font-title);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+
+.palette {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 12px;
+  justify-items: center;
+  padding: 4px;
+}
+
+.custom-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 4px 0;
+  border-top: 1px solid var(--glass-line);
+  font-size: 13px;
+}
+
+.custom-row .hex {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  min-height: 36px;
+  font-variant-numeric: tabular-nums;
+  text-transform: lowercase;
+}
+
+.stroke-preview {
+  display: grid;
+  place-items: center;
+  height: 72px;
+  border-radius: var(--radius);
+  background: #fff;
+  color: #4a4757;
+  box-shadow: inset 0 0 0 1px rgba(128, 120, 150, 0.3);
+  overflow: hidden;
+}
+
+.stroke-preview svg {
+  width: 220px;
+  height: 64px;
 }
 
 .editor-body {
@@ -2329,7 +2566,6 @@ button.tree-toggle {
   min-width: 24px;
   padding: 1px 7px;
   border-radius: 4px;
-  font-family: var(--font-title);
   font-size: 12.5px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -2379,10 +2615,7 @@ canvas.ink {
   border-radius: var(--radius);
   background: none;
   color: var(--icon);
-  font-family: var(--font-title);
   font-size: 13.5px;
-  font-weight: 550;
-  letter-spacing: 0.03em;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition:
@@ -2414,9 +2647,9 @@ canvas.ink {
 }
 
 .sel-bar .swatch {
-  width: 28px;
-  height: 28px;
-  margin: 0 2px;
+  width: 24px;
+  height: 24px;
+  margin: 0 5px;
   flex: none;
 }
 
@@ -2508,12 +2741,6 @@ canvas.ink {
   font-size: 13.5px;
 }
 
-@media (max-width: 900px) {
-  .quick {
-    display: none;
-  }
-}
-
 @media (max-width: 560px) {
   .editor-title {
     display: none;
@@ -2530,19 +2757,18 @@ canvas.ink {
     gap: 0;
     padding: 0 2px;
   }
-  .toolbar .icon-btn {
-    width: 37px;
+  .belt {
+    gap: 0 2px;
+    padding: 2px 4px;
   }
-  .tools {
-    gap: 0;
-    padding: 0 2px;
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow-x: auto;
-    scrollbar-width: none;
+  .belt .icon-btn {
+    width: 38px;
   }
-  .tools .icon-btn {
-    flex: none;
+  .quick .swatch {
+    margin: 6px;
+  }
+  .quick .width {
+    width: 34px;
   }
   .corner .icon-btn,
   .corner .page-pill:not(:last-child) {
@@ -2654,12 +2880,6 @@ canvas.ink {
   to {
     left: 130%;
     opacity: 1;
-  }
-}
-
-@keyframes turn {
-  to {
-    transform: rotate(360deg);
   }
 }
 

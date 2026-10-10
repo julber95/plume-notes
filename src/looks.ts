@@ -160,7 +160,7 @@ export function folderIcon(look: Look | undefined, filled = false, opts: IconOpt
 }
 
 /**
- * The logo of a notebook: a bound book seen from the front, upright or wide.
+ * The logo of a notebook: a plain bound cover seen from the front, upright or wide.
  * `pdf`: a sheet with a folded corner instead, for a notebook that came from a PDF.
  */
 export function notebookIcon(look: Look | undefined, orient: Orientation = 'portrait', pdf = false, opts: IconOptions = {}): string {
@@ -179,7 +179,7 @@ export function notebookIcon(look: Look | undefined, orient: Orientation = 'port
   const bottom = mix(c, '#000000', 0.18)
   const defs =
     `<defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${top}"/><stop offset=".6" stop-color="${c}"/><stop offset="1" stop-color="${bottom}"/></linearGradient>` +
-    `<clipPath id="${id}c"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3"/></clipPath></defs>`
+    `<clipPath id="${id}c"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3.5"/></clipPath></defs>`
   const symbol = look?.symbol ?? (pdf ? undefined : 'feather')
 
   if (pdf) {
@@ -199,23 +199,12 @@ export function notebookIcon(look: Look | undefined, orient: Orientation = 'port
     )
   }
 
-  const spine = 6.5
-  const pages = `<rect x="${x + 3}" y="${y + 2}" width="${w - 1.5}" height="${h - 4}" rx="2" fill="#ffffff" opacity=".92"/><path d="M${x + w + 0.2} ${y + 5}v${h - 10}" stroke="${mix(c, '#ffffff', 0.5)}" stroke-width=".8" fill="none"/>`
-  const cover = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="url(#${id})"/>`
-  const binding =
-    `<g clip-path="url(#${id}c)"><rect x="${x}" y="${y}" width="${spine}" height="${h}" fill="#000000" opacity=".24"/>` +
-    (opts.small ? '' : `<path d="M${x - 2} ${y + h}L${x + w * 0.62} ${y}h${w * 0.2}L${x + w * 0.18} ${y + h}z" fill="#ffffff" opacity=".1"/>`) +
-    `</g>`
-  const rings = opts.small
-    ? ''
-    : [0.2, 0.5, 0.8].map((t) => `<rect x="${x - 1.8}" y="${y + h * t - 1.3}" width="6" height="2.6" rx="1.3" fill="${mix(c, '#ffffff', 0.78)}"/>`).join('')
+  // Kept plain: a cover, the band of its binding, and the symbol.
+  const spine = 5.5
+  const cover = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3.5" fill="url(#${id})"/>`
+  const binding = `<rect x="${x}" y="${y}" width="${spine}" height="${h}" fill="#000000" opacity=".22" clip-path="url(#${id}c)"/>`
   const cx = x + spine + (w - spine) / 2
-  const size = wide ? 15 : 14
-  const emblem = opts.small
-    ? ''
-    : `<circle cx="${cx}" cy="${y + h * 0.44}" r="${size * 0.74}" fill="${ink}" opacity=".13"/>` +
-      symbolMark(symbol, cx, y + h * 0.44, size, ink) +
-      `<path d="M${cx - 5} ${y + h - 5.5}h10" stroke="${ink}" stroke-opacity=".45" stroke-width="1.3" stroke-linecap="round"/>`
-  const edge = `<rect x="${x + 0.5}" y="${y + 0.5}" width="${w - 1}" height="${h - 1}" rx="2.6" fill="none" stroke="${rim}" stroke-opacity=".7" stroke-width="1"/>`
-  return `<svg class="lib-icon notebook-art ${wide ? 'landscape' : ''}" viewBox="0 0 48 48" aria-hidden="true">${defs}${pages}${cover}${binding}${edge}${rings}${emblem}</svg>`
+  const emblem = opts.small ? '' : symbolMark(symbol, cx, y + h / 2, wide ? 16 : 15, ink)
+  const edge = `<rect x="${x + 0.5}" y="${y + 0.5}" width="${w - 1}" height="${h - 1}" rx="3" fill="none" stroke="${rim}" stroke-opacity=".55" stroke-width="1"/>`
+  return `<svg class="lib-icon notebook-art ${wide ? 'landscape' : ''}" viewBox="0 0 48 48" aria-hidden="true">${defs}${cover}${binding}${edge}${emblem}</svg>`
 }

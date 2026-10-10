@@ -31,6 +31,10 @@ recent browser on a computer.
 - Pictures: insert an image on the page, then move, resize, rotate, crop,
   duplicate or delete it like any selection; ink and highlighter go over it.
 - Axes for graphs: graduated axes with an optional grid, inserted as strokes.
+- Writing toolbar of its own, docked at the top, bottom, left or right of the
+  page (drag its handle). Each tool keeps three colours and three widths at
+  hand (three sizes for the eraser): one tap selects, a tap on the selected
+  one changes it. They follow on every device, with the folder colours.
 - Light and dark appearance, with optional dark pages while writing.
 - New notebook dialog: name, optional cover page (ten templates, eight
   colours, subtitle), page background and orientation.
@@ -72,6 +76,7 @@ npm run build      # production build in dist/
 | `src/geometry.ts`, `src/backgrounds.ts` | Stroke shapes and backgrounds, shared by screen and PDF |
 | `src/covers.ts`, `src/axes.ts` | Cover page templates; graduated axes |
 | `src/looks.ts` | Folder and notebook icons, their colours and symbols |
+| `src/presets.ts` | Colours and widths kept at hand in the writing toolbar |
 | `src/shapes.ts` | Shape recognition (line, rectangle, ellipse, curve…) |
 | `src/pdf/` | Building and reading PDFs (in a worker) |
 | `src/ui/pdfview.ts` | Display of imported PDF pages (PDF.js) |
